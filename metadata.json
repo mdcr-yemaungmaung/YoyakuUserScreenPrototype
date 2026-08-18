@@ -1,6 +1,6 @@
 {
   "name": "Remix EzBookNowUserScreenPrototypes",
-  "description": "Imported from GitHub: mdcr-yemaungmaung/EzBookNowUserScreenPrototypes",
+  "description": "Yoyaku - Myanmar Premier Dining Reservation Platform with authentic brand logo, two-column My Page, U-09 reservation management, and guest lookup",
   "requestFramePermissions": [],
   "majorCapabilities": [
     "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
