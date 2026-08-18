@@ -1385,4 +1385,6 @@
 
   window.YoyakuComponents.renderMyPageView = renderMyPageView;
   window.YoyakuComponents.attachMyPageViewEvents = attachMyPageViewEvents;
+  window.YoyakuComponents.renderReservationsListView = renderMyPageView;
+  window.YoyakuComponents.attachReservationsListViewEvents = attachMyPageViewEvents;
 })();

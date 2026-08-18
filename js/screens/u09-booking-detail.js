@@ -1,1439 +1,929 @@
 (() => {
+  'use strict';
+
   window.YoyakuComponents = window.YoyakuComponents || {};
   const store = window.store;
 
+  // Helper to format currency
   function formatMMK(amount) {
-    return Number(amount || 0).toLocaleString() + ' MMK';
+    if (!amount) return '0 MMK';
+    return Number(amount).toLocaleString('en-US') + ' MMK';
   }
 
-  function formatUSD(amount) {
-    const usd = Math.round((Number(amount || 0)) / 3300);
-    return `(~$${usd} USD)`;
-  }
-
-  function getStatusBadge(status, isMm) {
-    const s = (status || '').toLowerCase();
+  // Render Status Badge
+  function renderStatusBadge(status, isMm) {
+    const s = (status || 'confirmed').toLowerCase();
     if (s === 'confirmed') {
-      return {
-        bg: 'bg-[#104b2b]',
-        text: 'text-white',
-        border: 'border-[#104b2b]',
-        icon: 'check_circle',
-        label: isMm ? 'အတည်ပြုပြီး (Confirmed)' : 'Confirmed',
-        desc: isMm ? 'စားပွဲဝိုင်း စိုတ်ထားမှု အတည်ပြုပြီးပါပြီ။ သတ်မှတ်ချိန်အတွင်း လာရောက်နိုင်ပါသည်' : 'Table guaranteed. Please present QR pass on arrival.'
-      };
+      return `
+        <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-emerald-50 text-emerald-800 border border-emerald-300 shadow-sm">
+          <span class="material-symbols-outlined text-sm text-emerald-600">check_circle</span>
+          <span>${isMm ? 'အတည်ပြုပြီး' : 'Confirmed'}</span>
+        </span>
+      `;
     }
     if (s === 'pending') {
-      return {
-        bg: 'bg-amber-600',
-        text: 'text-white',
-        border: 'border-amber-600',
-        icon: 'hourglass_top',
-        label: isMm ? 'အတည်ပြုရန် စောင့်ဆိုင်းဆဲ (Pending)' : 'Pending Confirmation',
-        desc: isMm ? 'ဆိုင်ဘက်မှ စားပွဲဝိုင်း အခြေအနေ စစ်ဆေးအတည်ပြုရန် စောင့်ဆိုင်းနေပါသည်' : 'Awaiting table confirmation from venue management.'
-      };
+      return `
+        <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-amber-50 text-amber-800 border border-amber-300 shadow-sm">
+          <span class="material-symbols-outlined text-sm text-amber-600">schedule</span>
+          <span>${isMm ? 'စောင့်ဆိုင်းဆဲ' : 'Pending Approval'}</span>
+        </span>
+      `;
     }
     if (s === 'completed') {
-      return {
-        bg: 'bg-[#231916]',
-        text: 'text-[#e8c078]',
-        border: 'border-[#e8c078]/40',
-        icon: 'verified',
-        label: isMm ? 'လာရောက်ပြီးမြောက်ပြီး (Completed)' : 'Completed',
-        desc: isMm ? 'စားသောက်မှု ပြီးမြောက်ခဲ့ပါပြီ။ အတွေ့အကြုံအတွက် Review ရေးသားနိုင်ပါသည်' : 'Dining completed. Share your review & earn reward points.'
-      };
+      return `
+        <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-slate-100 text-slate-700 border border-slate-300 shadow-sm">
+          <span class="material-symbols-outlined text-sm text-slate-500">task_alt</span>
+          <span>${isMm ? 'ပြီးမြောက်ပြီး' : 'Completed'}</span>
+        </span>
+      `;
     }
-    return {
-      bg: 'bg-rose-700',
-      text: 'text-white',
-      border: 'border-rose-700',
-      icon: 'cancel',
-      label: isMm ? 'ပယ်ဖျက်ထားသည် (Cancelled)' : 'Cancelled',
-      desc: isMm ? 'ဤမှာယူမှုကို ပယ်ဖျက်ထားပါသည်။ စားပွဲဝိုင်း အသစ် ပြန်လည်မှာယူနိုင်ပါသည်' : 'This reservation was cancelled.'
-    };
-  }
-
-  // =========================================================================
-  // MAIN U-09 RENDER ROUTER
-  // =========================================================================
-  function renderReservationsListView(state) {
-    const isMm = state.currentLanguage === 'MM';
-    const reservations = state.reservations || [];
-    const selectedId = state.selectedReservationId;
-
-    // If a specific reservation is selected, render the U-09 Detail View
-    if (selectedId) {
-      const selectedBooking = reservations.find(b => b.id === selectedId) || reservations[0];
-      if (selectedBooking) {
-        return renderReservationDetailView(selectedBooking, state);
-      }
+    if (s === 'cancelled') {
+      return `
+        <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-rose-50 text-rose-800 border border-rose-300 shadow-sm">
+          <span class="material-symbols-outlined text-sm text-rose-600">cancel</span>
+          <span>${isMm ? 'ပယ်ဖျက်ပြီး' : 'Cancelled'}</span>
+        </span>
+      `;
     }
-
-    // Otherwise render the Reservations Directory / List with quick switch
-    return renderReservationsAllList(state);
-  }
-
-  // =========================================================================
-  // U-09: RESERVATIONS LIST VIEW (With Filter & Selection)
-  // =========================================================================
-  function renderReservationsAllList(state) {
-    const isMm = state.currentLanguage === 'MM';
-    const reservations = state.reservations || [];
-
-    const activeCount = reservations.filter(r => r.status === 'Confirmed' || r.status === 'Pending').length;
-    const pastCount = reservations.filter(r => r.status === 'Completed' || r.status === 'Cancelled').length;
-
     return `
-      <div class="space-y-8 pb-28 sm:pb-16 text-left max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 pt-4 animate-fadeIn">
-        
-        <!-- HEADER -->
-        <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-[#EADFD1] pb-6">
-          <div>
-            <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#840f16]/10 text-[#840f16] text-xs font-label font-bold mb-1">
-              <span class="material-symbols-outlined text-xs">receipt_long</span>
-              <span>${isMm ? 'မှာယူမှု စာမျက်နှာ (U-09)' : 'Reservations Hub (U-09)'}</span>
-            </div>
-            <h1 class="font-headline text-3xl font-extrabold text-[#231916]">
-              ${isMm ? 'သင်၏ စားပွဲဝိုင်း မှာယူမှုများ' : 'Your Table Reservations'}
-            </h1>
-            <p class="font-body text-xs sm:text-sm text-[#58413f] mt-1">
-              ${isMm ? 'မှာယူမှု အသေးစိတ် ကြည့်ရှုခြင်း၊ ရက်စွဲ/အချိန် ပြင်ဆင်ခြင်းနှင့် ပယ်ဖျက်ခြင်းများကို စီမံနိုင်ပါသည်' : 'Manage your dining reservations, change dates, cancel, view check-in passes, and re-book.'}
-            </p>
-          </div>
-
-          <div class="flex items-center gap-2.5">
-            <button
-              id="u09-guest-lookup-btn"
-              class="px-4 py-2.5 rounded-full border border-[#840f16] text-[#840f16] bg-white font-label text-xs font-bold hover:bg-[#840f16]/5 transition-colors flex items-center gap-1.5 cursor-pointer"
-            >
-              <span class="material-symbols-outlined text-sm">search</span>
-              <span>${isMm ? 'ဧည့်သည် စိုတ်ထားမှု စစ်ဆေးရန်' : 'Guest Code Lookup'}</span>
-            </button>
-
-            <button
-              id="resv-book-new-btn"
-              class="btn-primary px-5 py-2.5 rounded-full font-label text-xs font-semibold shadow-md flex items-center gap-1.5 cursor-pointer"
-            >
-              <span class="material-symbols-outlined text-sm">add_circle</span>
-              <span>${isMm ? 'ဝိုင်းအသစ် စိုတ်ရန်' : 'Book New Table'}</span>
-            </button>
-          </div>
-        </div>
-
-        <!-- SUMMARY STATS BAR -->
-        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <div class="bg-[#FBF3E2] p-4 rounded-2xl border border-[#EADFD1] text-left">
-            <div class="font-label text-[11px] font-bold text-[#58413f] uppercase tracking-wider">${isMm ? 'စုစုပေါင်း မှာယူမှု' : 'Total Bookings'}</div>
-            <div class="font-headline text-2xl font-black text-[#231916] mt-1">${reservations.length}</div>
-          </div>
-          <div class="bg-[#FBF3E2] p-4 rounded-2xl border border-[#EADFD1] text-left">
-            <div class="font-label text-[11px] font-bold text-[#104b2b] uppercase tracking-wider">${isMm ? 'အတည်ပြုပြီး / စောင့်ဆိုင်း' : 'Active / Pending'}</div>
-            <div class="font-headline text-2xl font-black text-[#104b2b] mt-1">${activeCount}</div>
-          </div>
-          <div class="bg-[#FBF3E2] p-4 rounded-2xl border border-[#EADFD1] text-left">
-            <div class="font-label text-[11px] font-bold text-[#58413f] uppercase tracking-wider">${isMm ? 'ပြီးမြောက်ခဲ့ပြီး' : 'Past Completed'}</div>
-            <div class="font-headline text-2xl font-black text-[#231916] mt-1">${reservations.filter(r => r.status === 'Completed').length}</div>
-          </div>
-          <div class="bg-[#FBF3E2] p-4 rounded-2xl border border-[#EADFD1] text-left">
-            <div class="font-label text-[11px] font-bold text-rose-700 uppercase tracking-wider">${isMm ? 'ပယ်ဖျက်ထားမှုများ' : 'Cancelled'}</div>
-            <div class="font-headline text-2xl font-black text-rose-700 mt-1">${reservations.filter(r => r.status === 'Cancelled').length}</div>
-          </div>
-        </div>
-
-        <!-- RESERVATIONS LIST -->
-        ${
-          reservations.length === 0
-            ? `
-              <div class="bg-[#FBF3E2] rounded-3xl p-12 border border-[#EADFD1] text-center space-y-4 shadow-sm my-8">
-                <div class="w-16 h-16 bg-[#840f16]/10 text-[#840f16] rounded-full flex items-center justify-center mx-auto">
-                  <span class="material-symbols-outlined text-3xl">calendar_today</span>
-                </div>
-                <h3 class="font-headline text-2xl font-bold text-[#231916]">${isMm ? 'လက်ရှိတွင် မှာယူထားသော စားပွဲဝိုင်း မရှိသေးပါ' : 'No reservations found'}</h3>
-                <p class="font-body text-xs sm:text-sm text-[#58413f] max-w-md mx-auto">
-                  ${isMm ? 'ရန်ကုန်မြို့ရှိ နာမည်ကျော် အဆင့်မြင့် စားသောက်ဆိုင်များကို စူးစမ်းရှာဖွေပြီး စားပွဲဝိုင်း စတင်စိုတ်ယူလိုက်ပါ' : 'Discover exquisite venues across Yangon and confirm your table in seconds.'}
-                </p>
-                <button
-                  id="resv-empty-discover-btn"
-                  class="btn-primary px-8 py-3.5 rounded-full font-label text-xs font-semibold shadow-md inline-flex items-center gap-2 cursor-pointer mt-2"
-                >
-                  <span>${isMm ? 'ဆိုင်များ စူးစမ်းရန်' : 'Explore Venues'}</span>
-                  <span class="material-symbols-outlined text-sm">arrow_forward</span>
-                </button>
-              </div>
-            `
-            : `
-              <div class="space-y-4">
-                ${reservations
-                  .map(b => {
-                    const badge = getStatusBadge(b.status, isMm);
-                    const amountMmk = b.totalAmountMMK || b.totalAmount || 0;
-                    return `
-                      <div class="bg-[#FBF3E2] rounded-3xl border border-[#EADFD1] p-5 sm:p-6 shadow-sm hover:shadow-md transition-all flex flex-col md:flex-row gap-5 justify-between items-start md:items-center">
-                        
-                        <div class="flex gap-4 items-start flex-1 min-w-0">
-                          <div class="w-20 h-20 sm:w-24 sm:h-24 rounded-2xl overflow-hidden border border-[#EADFD1] shrink-0">
-                            <img src="${b.restaurantImage}" alt="${b.restaurantName}" referrerpolicy="no-referrer" loading="lazy" onerror="this.onerror=null; this.src='assets/images/gilded_fork.jpg';" class="w-full h-full object-cover" />
-                          </div>
-                          
-                          <div class="space-y-1 min-w-0 flex-1">
-                            <div class="flex flex-wrap items-center gap-2">
-                              <span class="${badge.bg} ${badge.text} font-label text-[10px] font-bold uppercase px-2 py-0.5 rounded-md flex items-center gap-1">
-                                <span class="material-symbols-outlined text-xs">${badge.icon}</span>
-                                <span>${b.status}</span>
-                              </span>
-                              <span class="font-label text-xs font-bold text-[#58413f] bg-white/90 px-2 py-0.5 rounded-full border border-[#EADFD1]">
-                                ${b.reservationNo}
-                              </span>
-                              ${b.seatingPreference ? `
-                                <span class="font-label text-[10px] text-[#840f16] bg-[#840f16]/5 px-2 py-0.5 rounded-full border border-[#840f16]/20">
-                                  ${b.seatingPreference}
-                                </span>
-                              ` : ''}
-                            </div>
-
-                            <h3
-                              data-u09-view-detail-id="${b.id}"
-                              class="font-headline text-lg sm:text-xl font-bold text-[#231916] hover:text-[#840f16] cursor-pointer transition-colors truncate"
-                            >
-                              ${isMm && b.restaurantNameMM ? b.restaurantNameMM : b.restaurantName}
-                            </h3>
-
-                            <p class="font-body text-xs text-[#58413f] flex items-center gap-1 truncate">
-                              <span class="material-symbols-outlined text-xs text-[#840f16]">location_on</span>
-                              <span>${b.location}</span>
-                            </p>
-
-                            <div class="flex flex-wrap items-center gap-x-4 gap-y-1 font-label text-xs font-bold text-[#840f16] pt-0.5">
-                              <span class="flex items-center gap-1">
-                                <span class="material-symbols-outlined text-xs">calendar_today</span>
-                                <span>${b.date} • ${b.time}</span>
-                              </span>
-                              <span class="flex items-center gap-1 text-[#58413f]">
-                                <span class="material-symbols-outlined text-xs">group</span>
-                                <span>${b.guests} ${isMm ? 'ဦး' : 'Guests'}</span>
-                              </span>
-                              <span class="text-[#231916] font-bold">
-                                ${formatMMK(amountMmk)} <span class="text-[11px] text-[#58413f] font-normal">${formatUSD(amountMmk)}</span>
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-
-                        <!-- Actions -->
-                        <div class="flex flex-wrap sm:flex-nowrap gap-2 w-full md:w-auto shrink-0 justify-end">
-                          <button
-                            data-u09-view-detail-id="${b.id}"
-                            class="btn-primary px-4 py-2.5 rounded-full font-label text-xs font-semibold shadow-xs flex items-center justify-center gap-1.5 cursor-pointer flex-1 sm:flex-initial"
-                          >
-                            <span class="material-symbols-outlined text-sm">visibility</span>
-                            <span>${isMm ? 'အသေးစိတ်နှင့် ပြင်ဆင်ရန်' : 'View Details'}</span>
-                          </button>
-
-                          ${(b.status === 'Confirmed' || b.status === 'Pending') ? `
-                            <button
-                              data-resv-view-pass-id="${b.id}"
-                              class="px-3.5 py-2.5 rounded-full bg-white border border-[#EADFD1] font-label text-xs font-semibold text-[#231916] hover:bg-[#840f16] hover:text-white transition-colors flex items-center justify-center gap-1 cursor-pointer"
-                              title="QR Pass"
-                            >
-                              <span class="material-symbols-outlined text-sm">qr_code_2</span>
-                            </button>
-                          ` : ''}
-
-                          ${b.status === 'Completed' ? `
-                            <button
-                              data-u09-open-review-id="${b.id}"
-                              class="px-3.5 py-2.5 rounded-full bg-[#e8c078]/20 border border-[#e8c078] font-label text-xs font-bold text-[#840f16] hover:bg-[#840f16] hover:text-white transition-colors flex items-center justify-center gap-1 cursor-pointer"
-                            >
-                              <span class="material-symbols-outlined text-sm">rate_review</span>
-                              <span>${isMm ? 'Review ရေးမည်' : 'Write Review'}</span>
-                            </button>
-                          ` : ''}
-
-                          ${(b.status === 'Completed' || b.status === 'Cancelled') ? `
-                            <button
-                              data-u09-rebook-id="${b.id}"
-                              class="px-3.5 py-2.5 rounded-full bg-white border border-[#EADFD1] font-label text-xs font-bold text-[#104b2b] hover:bg-[#104b2b] hover:text-white transition-colors flex items-center justify-center gap-1 cursor-pointer"
-                            >
-                              <span class="material-symbols-outlined text-sm">refresh</span>
-                              <span>${isMm ? 'ပြန်စိုတ်မည်' : 'Re-book'}</span>
-                            </button>
-                          ` : ''}
-                        </div>
-
-                      </div>
-                    `;
-                  })
-                  .join('')}
-              </div>
-            `
-        }
-
-        <!-- MODALS -->
-        ${renderU09AllModals(state)}
-
-      </div>
+      <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-gray-100 text-gray-700 border border-gray-300 shadow-sm">
+        <span>${status}</span>
+      </span>
     `;
   }
 
-  // =========================================================================
-  // U-09: RESERVATION DETAILS, CHANGE & CANCELLATION DETAILED VIEW
-  // =========================================================================
-  function renderReservationDetailView(b, state) {
+  // Main View Renderer for U-09
+  function renderBookingDetailView(state) {
     const isMm = state.currentLanguage === 'MM';
-    const isGuest = state.isGuestReservationView || false;
-    const badge = getStatusBadge(b.status, isMm);
-    const amountMmk = b.totalAmountMMK || b.totalAmount || 350000;
-    const amountUsd = b.totalAmountUSD || Math.round(amountMmk / 3300);
-    const isModifiable = !isGuest && (b.status === 'Confirmed' || b.status === 'Pending');
-    const isCancellable = b.status === 'Confirmed' || b.status === 'Pending';
-    const isCompleted = b.status === 'Completed';
-    const isCancelled = b.status === 'Cancelled';
+    const isGuest = !!state.isGuestReservationView;
+    const resId = state.selectedReservationId;
+
+    // Find reservation in store or mock fallback
+    const res = (state.reservations || []).find(r => r.id === resId) || {
+      id: resId || 'res_default',
+      reservationNo: resId ? `EZ-2026-${resId.replace(/\D/g, '').padStart(4, '0') || '8894'}` : 'EZ-2026-8894',
+      restaurantId: '1',
+      restaurantName: 'Le Planteur Fine Dining & Wine Bar',
+      restaurantNameMM: 'လီပလန်တား အဆင့်မြင့် ပြင်သစ်စားသောက်ဆိုင်',
+      location: 'Bahan Township, Yangon',
+      locationMM: 'ဗဟန်းမြို့နယ်၊ ရန်ကုန်မြို့',
+      phone: '+95 1 541 997',
+      address: '80 University Avenue Road, Bahan Township, Yangon',
+      date: 'Aug 24, 2026',
+      time: '19:30',
+      guests: 4,
+      seating: 'Window View - Garden Terrace',
+      seatingMM: 'ဥယျာဉ်ရှုခင်း ပြတင်းပေါက် စားပွဲဝိုင်း',
+      courseName: '6-Course French Heritage Tasting Menu',
+      courseNameMM: '၆ မျိုးပါ အဆင့်မြင့် ပြင်သစ် ရိုးရာအရသာ မီနူး',
+      customerName: state.currentUser ? state.currentUser.name : 'Daw Hla Hla Win',
+      customerPhone: state.currentUser ? state.currentUser.phone : '+95 9 790 123 456',
+      customerEmail: state.currentUser ? state.currentUser.email : 'hlahla.win@example.com',
+      totalAmountMMK: 350000,
+      totalAmountUSD: 106,
+      paymentStatus: 'Pay at Restaurant on Arrival',
+      paymentStatusMM: 'ဆိုင်အရောက် ငွေချေရန်',
+      status: 'Confirmed',
+      specialRequests: 'Window table requested. 1 guest has shellfish allergy. Celebrating a wedding anniversary.',
+      createdAt: '2026-08-15 14:20'
+    };
+
+    const isCancelled = (res.status || '').toLowerCase() === 'cancelled';
+    const isCompleted = (res.status || '').toLowerCase() === 'completed';
+    const canModify = !isCancelled && !isCompleted;
+
+    const resNumber = res.reservationNo || (res.id ? `EZ-2026-${res.id.replace(/\D/g, '').padStart(4, '0') || '8894'}` : 'EZ-2026-8894');
+    const restName = isMm ? (res.restaurantNameMM || res.restaurantName) : res.restaurantName;
+    const restLocation = isMm ? (res.locationMM || res.location) : res.location;
+    const courseTitle = isMm ? (res.courseNameMM || res.courseName || 'A La Carte Selection') : (res.courseName || 'A La Carte Selection');
+    const seatingTitle = isMm ? (res.seatingMM || res.seating || 'Standard Table') : (res.seating || 'Standard Table');
+    const paymentTitle = isMm ? (res.paymentStatusMM || res.paymentStatus || 'Pay at Restaurant') : (res.paymentStatus || 'Pay at Restaurant');
 
     return `
-      <div class="space-y-6 pb-28 sm:pb-16 text-left max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 pt-4 animate-fadeIn">
+      <div id="u09-booking-detail-page" class="min-h-screen bg-[#FFF7E8] text-[#231916] pb-24 font-body antialiased">
         
-        <!-- BREADCRUMBS & TOP NAV -->
-        <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 border-b border-[#EADFD1] pb-4">
-          <div class="flex items-center gap-2 text-xs font-label text-[#58413f]">
-            <button id="u09-back-to-list-btn" class="hover:text-[#840f16] flex items-center gap-1 font-bold cursor-pointer">
-              <span class="material-symbols-outlined text-sm">arrow_back</span>
-              <span>${isMm ? 'မှာယူမှုများ အားလုံးသို့' : 'All Reservations'}</span>
-            </button>
-            <span>/</span>
-            <span class="text-[#840f16] font-bold">${b.reservationNo}</span>
-          </div>
+        <!-- TOP BREADCRUMB & BACK HEADER -->
+        <div class="bg-[#FFFDF9] border-b border-[#EADFD1] sticky top-16 z-20 shadow-xs">
+          <div class="max-w-4xl mx-auto px-4 sm:px-6 py-3.5 flex items-center justify-between gap-4">
+            
+            <div class="flex items-center gap-3">
+              <button
+                id="u09-back-btn"
+                class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold text-[#58413f] hover:text-[#840F16] hover:bg-[#F5EDE0] transition-colors cursor-pointer"
+                title="${isMm ? 'နောက်သို့ ပြန်သွားရန်' : 'Back'}"
+              >
+                <span class="material-symbols-outlined text-xl">arrow_back</span>
+                <span>${isGuest ? (isMm ? 'ဧည့်သည် စုံစမ်းမှုသို့' : 'Back to Inquiry') : (isMm ? 'မှတ်တမ်းသို့ ပြန်သွားရန်' : 'Back to Reservations')}</span>
+              </button>
+            </div>
 
-          <div class="flex items-center gap-2">
-            <span class="font-label text-xs text-[#58413f]">${isMm ? 'ဖန်တီးချိန်:' : 'Booked on:'} ${new Date(b.createdAt || '2026-08-10').toLocaleDateString()}</span>
+            <div class="flex items-center gap-2">
+              <span class="text-xs font-semibold text-[#7A6B65] uppercase tracking-wider hidden sm:inline">
+                ${isMm ? 'စိုတ်ထားမှု အမှတ်စဉ်:' : 'Reservation:'}
+              </span>
+              <span class="font-mono text-xs font-bold text-[#840F16] bg-[#FCEEEA] px-2.5 py-1 rounded-md border border-[#F2D2CB]">
+                ${resNumber}
+              </span>
+            </div>
+
           </div>
         </div>
 
-        <!-- GUEST ACCESS RESTRICTION BANNER (If accessed via U-10 Guest Lookup) -->
-        ${
-          isGuest
-            ? `
-              <div class="bg-amber-50 border-2 border-amber-300 rounded-3xl p-4 sm:p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 text-left shadow-sm animate-fadeIn">
-                <div class="flex items-start gap-3">
-                  <div class="w-10 h-10 rounded-full bg-amber-500 text-white flex items-center justify-center shrink-0 mt-0.5">
-                    <span class="material-symbols-outlined text-xl">shield_person</span>
-                  </div>
-                  <div>
-                    <div class="font-headline font-bold text-sm text-amber-900 flex items-center gap-2">
-                      <span>${isMm ? 'ဧည့်သည်အဖြစ် စစ်ဆေးနေပါသည် (Guest Mode Access)' : 'Guest Mode Reservation Access'}</span>
-                      <span class="px-2 py-0.5 rounded-full bg-amber-200 text-amber-900 text-[10px] font-label font-bold uppercase">Guest User</span>
-                    </div>
-                    <p class="font-body text-xs text-amber-800 mt-0.5 leading-relaxed">
-                      ${
-                        isMm
-                          ? 'အကောင့်မဝင်ဘဲ စစ်ဆေးထားသောကြောင့် အချက်အလက် ကြည့်ရှုခြင်းနှင့် ပယ်ဖျက်ခြင်းသာ ပြုလုပ်နိုင်ပါသည်။ ရက်စွဲ/အချိန် ပြောင်းလဲလိုပါက ဆိုင်သို့ တိုက်ရိုက်ဖုန်းဆက်ပါ'
-                          : 'You are viewing this reservation as a Guest. Date and time changes cannot be modified online. Please call the restaurant directly or cancel/re-book.'
-                      }
-                    </p>
+        <main class="max-w-4xl mx-auto px-4 sm:px-6 pt-6 sm:pt-8 space-y-6">
+
+          <!-- GUEST MODE NOTICE BANNER (IF GUEST) -->
+          ${isGuest ? `
+            <div class="bg-amber-50 border border-amber-300 rounded-2xl p-4 sm:p-5 shadow-xs flex items-start gap-3.5">
+              <span class="material-symbols-outlined text-amber-700 text-2xl shrink-0 mt-0.5">info</span>
+              <div class="space-y-1 flex-1 text-sm">
+                <div class="font-bold text-amber-900 flex items-center gap-2">
+                  <span>${isMm ? 'ဧည့်သည် စုံစမ်းမှု အခြေအနေ (Guest Inquiry Mode)' : 'Guest Inquiry Mode'}</span>
+                  <span class="text-[11px] font-semibold bg-amber-200 text-amber-900 px-2 py-0.5 rounded-full">${isMm ? 'ကန့်သတ်ချက်ရှိသည်' : 'Limited Actions'}</span>
+                </div>
+                <p class="text-amber-800 leading-relaxed text-xs sm:text-sm">
+                  ${isMm 
+                    ? 'သင်သည် ကြိုတင်စာရင်း အမှတ်စဉ်နှင့် ဖုန်းနံပါတ်ဖြင့် ဧည့်သည်အဖြစ် ကြည့်ရှုနေပါသည်။ အသင်းဝင်အမှတ်များနှင့် အကောင့်မှတ်တမ်းများကို ရယူနိုင်ရန် အကောင့်ဝင်ရောက်ပါ။' 
+                    : 'You are viewing this reservation via guest lookup. Some member benefits, point rewards, and profile sync are limited.'}
+                </p>
+                <div class="pt-1">
+                  <button id="u09-guest-login-link" class="text-xs font-bold text-[#840F16] hover:underline inline-flex items-center gap-1 cursor-pointer">
+                    <span>${isMm ? 'အကောင့်ဝင်ရောက်ရန် သို့မဟုတ် အကောင့်ဖွင့်ရန်' : 'Log in or Register to save booking to profile'}</span>
+                    <span class="material-symbols-outlined text-xs">arrow_forward</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          ` : ''}
+
+          <!-- SECTION 1: RESERVATION SUMMARY HEADER CARD -->
+          <div class="bg-[#FFFDF9] rounded-2xl border border-[#EADFD1] p-6 sm:p-8 shadow-sm space-y-6">
+            
+            <div class="flex flex-col sm:flex-row sm:items-start justify-between gap-4 border-b border-[#F0E5D8] pb-5">
+              <div class="space-y-1.5">
+                <div class="flex items-center gap-2.5 flex-wrap">
+                  ${renderStatusBadge(res.status, isMm)}
+                  <span class="text-xs text-[#7A6B65] font-medium font-body flex items-center gap-1">
+                    <span class="material-symbols-outlined text-xs">tag</span>
+                    <span>${resNumber}</span>
+                  </span>
+                </div>
+                <h1 class="font-headline text-2xl sm:text-3xl font-extrabold text-[#231916] tracking-tight">
+                  ${restName}
+                </h1>
+                <div class="flex items-center gap-2 text-xs sm:text-sm text-[#58413f] font-medium">
+                  <span class="material-symbols-outlined text-sm text-[#840F16]">location_on</span>
+                  <span>${restLocation}</span>
+                </div>
+              </div>
+
+              <!-- Quick Copy & QR Action -->
+              <div class="flex items-center gap-2.5 self-start sm:self-center">
+                <button
+                  id="u09-copy-id-btn"
+                  data-res-no="${resNumber}"
+                  class="px-3.5 py-2 rounded-full bg-[#FAF3E8] hover:bg-[#EADFD1] text-[#231916] border border-[#EADFD1] text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs"
+                  title="Copy Reservation Number"
+                >
+                  <span class="material-symbols-outlined text-sm">content_copy</span>
+                  <span id="u09-copy-btn-text">${isMm ? 'ကူးယူရန်' : 'Copy ID'}</span>
+                </button>
+
+                <button
+                  id="u09-view-pass-btn"
+                  class="btn-primary px-4 py-2 rounded-full font-label font-bold text-xs shadow-md flex items-center gap-1.5 cursor-pointer transition-all active:scale-[0.98]"
+                  title="View Digital QR Pass"
+                >
+                  <span class="material-symbols-outlined text-sm">qr_code_2</span>
+                  <span>${isMm ? 'QR ကတ်' : 'QR Pass'}</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- KEY ATTRIBUTE HIGHLIGHTS (Date, Time, Guests) -->
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+              
+              <!-- Date Tile -->
+              <div class="bg-[#FAF3E8] rounded-xl p-4 border border-[#EADFD1] flex items-center gap-3.5">
+                <div class="w-11 h-11 rounded-xl bg-[#840F16]/10 flex items-center justify-center text-[#840F16] shrink-0">
+                  <span class="material-symbols-outlined text-2xl">calendar_month</span>
+                </div>
+                <div>
+                  <div class="text-[11px] font-semibold text-[#7A6B65] uppercase tracking-wider">${isMm ? 'ရက်စွဲ' : 'Date'}</div>
+                  <div class="font-headline text-base sm:text-lg font-bold text-[#231916]">${res.date}</div>
+                </div>
+              </div>
+
+              <!-- Time Tile -->
+              <div class="bg-[#FAF3E8] rounded-xl p-4 border border-[#EADFD1] flex items-center gap-3.5">
+                <div class="w-11 h-11 rounded-xl bg-[#840F16]/10 flex items-center justify-center text-[#840F16] shrink-0">
+                  <span class="material-symbols-outlined text-2xl">schedule</span>
+                </div>
+                <div>
+                  <div class="text-[11px] font-semibold text-[#7A6B65] uppercase tracking-wider">${isMm ? 'အချိန်' : 'Time'}</div>
+                  <div class="font-headline text-base sm:text-lg font-bold text-[#231916]">${res.time}</div>
+                </div>
+              </div>
+
+              <!-- Guests Tile -->
+              <div class="bg-[#FAF3E8] rounded-xl p-4 border border-[#EADFD1] flex items-center gap-3.5">
+                <div class="w-11 h-11 rounded-xl bg-[#840F16]/10 flex items-center justify-center text-[#840F16] shrink-0">
+                  <span class="material-symbols-outlined text-2xl">group</span>
+                </div>
+                <div>
+                  <div class="text-[11px] font-semibold text-[#7A6B65] uppercase tracking-wider">${isMm ? 'လူဦးရေ' : 'Party Size'}</div>
+                  <div class="font-headline text-base sm:text-lg font-bold text-[#231916]">
+                    ${res.guests} ${isMm ? 'ဦး' : (res.guests === 1 ? 'Guest' : 'Guests')}
                   </div>
                 </div>
-
-                <a
-                  href="tel:${b.restaurantPhone || '+959798123456'}"
-                  class="px-4 py-2 rounded-full bg-amber-600 hover:bg-amber-700 text-white font-label text-xs font-bold shadow-xs inline-flex items-center gap-1.5 shrink-0"
-                >
-                  <span class="material-symbols-outlined text-sm">call</span>
-                  <span>${isMm ? 'ဆိုင်သို့ ဖုန်းခေါ်မည်' : 'Call Restaurant'}</span>
-                </a>
               </div>
-            `
-            : ''
-        }
 
-        <!-- HERO STATUS CARD -->
-        <div class="bg-[#FBF3E2] rounded-3xl border border-[#EADFD1] p-6 sm:p-8 shadow-md relative overflow-hidden">
-          
-          <!-- Decorative subtle pattern background -->
-          <div class="absolute -right-8 -top-8 w-40 h-40 bg-[#840f16]/5 rounded-full blur-2xl pointer-events-none"></div>
+            </div>
 
-          <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 relative z-10">
+          </div>
+
+          <!-- SECTION 2: DETAILED RESERVATION SPECIFICATIONS -->
+          <div class="bg-[#FFFDF9] rounded-2xl border border-[#EADFD1] p-6 sm:p-8 shadow-sm space-y-6">
             
-            <!-- Left status info -->
-            <div class="space-y-2">
-              <div class="flex flex-wrap items-center gap-2.5">
-                <span class="${badge.bg} ${badge.text} font-label text-xs font-extrabold uppercase px-3 py-1 rounded-lg flex items-center gap-1.5 shadow-xs">
-                  <span class="material-symbols-outlined text-sm">${badge.icon}</span>
-                  <span>${badge.label}</span>
-                </span>
-                <span class="font-label text-xs font-bold text-[#58413f] bg-white px-3 py-1 rounded-full border border-[#EADFD1]">
-                  ${b.reservationNo}
-                </span>
+            <div class="flex items-center justify-between border-b border-[#F0E5D8] pb-3">
+              <h2 class="font-headline text-lg sm:text-xl font-bold text-[#231916] flex items-center gap-2">
+                <span class="material-symbols-outlined text-[#840F16]">receipt_long</span>
+                <span>${isMm ? 'ကြိုတင်စာရင်း အချက်အလက် အပြည့်အစုံ' : 'Reservation Specifications'}</span>
+              </h2>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-5">
+              
+              <!-- Customer Name -->
+              <div class="p-4 rounded-xl bg-[#FFFDF9] border border-[#EADFD1] space-y-1">
+                <div class="text-xs font-semibold text-[#7A6B65] flex items-center gap-1.5">
+                  <span class="material-symbols-outlined text-sm text-[#840F16]">person</span>
+                  <span>${isMm ? 'မှာယူသူ အမည်' : 'Primary Guest Name'}</span>
+                </div>
+                <div class="font-headline text-base font-bold text-[#231916]">${res.customerName}</div>
               </div>
 
-              <h2 class="font-headline text-2xl sm:text-3xl font-extrabold text-[#231916]">
-                ${isMm && b.restaurantNameMM ? b.restaurantNameMM : b.restaurantName}
-              </h2>
+              <!-- Phone Number -->
+              <div class="p-4 rounded-xl bg-[#FFFDF9] border border-[#EADFD1] space-y-1">
+                <div class="text-xs font-semibold text-[#7A6B65] flex items-center gap-1.5">
+                  <span class="material-symbols-outlined text-sm text-[#840F16]">call</span>
+                  <span>${isMm ? 'ဆက်သွယ်ရန် ဖုန်းနံပါတ်' : 'Contact Phone'}</span>
+                </div>
+                <div class="font-headline text-base font-bold text-[#231916] font-mono">${res.customerPhone}</div>
+              </div>
 
-              <p class="font-body text-xs sm:text-sm text-[#58413f] max-w-xl">
-                ${badge.desc}
+              <!-- Seating Preference -->
+              <div class="p-4 rounded-xl bg-[#FFFDF9] border border-[#EADFD1] space-y-1">
+                <div class="text-xs font-semibold text-[#7A6B65] flex items-center gap-1.5">
+                  <span class="material-symbols-outlined text-sm text-[#840F16]">table_restaurant</span>
+                  <span>${isMm ? 'စားပွဲဝိုင်း အမျိုးအစား' : 'Seating / Area Preference'}</span>
+                </div>
+                <div class="font-body text-sm font-bold text-[#231916]">${seatingTitle}</div>
+              </div>
+
+              <!-- Selected Menu/Course -->
+              <div class="p-4 rounded-xl bg-[#FFFDF9] border border-[#EADFD1] space-y-1">
+                <div class="text-xs font-semibold text-[#7A6B65] flex items-center gap-1.5">
+                  <span class="material-symbols-outlined text-sm text-[#840F16]">restaurant_menu</span>
+                  <span>${isMm ? 'ရွေးချယ်ထားသော မီနူး / ကော်စ်' : 'Selected Course / Menu'}</span>
+                </div>
+                <div class="font-body text-sm font-bold text-[#231916]">${courseTitle}</div>
+              </div>
+
+              <!-- Payment Method & Estimate -->
+              <div class="p-4 rounded-xl bg-[#FFFDF9] border border-[#EADFD1] space-y-1">
+                <div class="text-xs font-semibold text-[#7A6B65] flex items-center gap-1.5">
+                  <span class="material-symbols-outlined text-sm text-[#840F16]">payments</span>
+                  <span>${isMm ? 'ငွေပေးချေမှု အခြေအနေ' : 'Payment Status & Estimate'}</span>
+                </div>
+                <div class="font-body text-sm font-bold text-[#231916] flex items-center justify-between">
+                  <span>${paymentTitle}</span>
+                  <span class="text-xs font-bold text-[#840F16]">${formatMMK(res.totalAmountMMK)}</span>
+                </div>
+              </div>
+
+              <!-- Booking Channel & Created Date -->
+              <div class="p-4 rounded-xl bg-[#FFFDF9] border border-[#EADFD1] space-y-1">
+                <div class="text-xs font-semibold text-[#7A6B65] flex items-center gap-1.5">
+                  <span class="material-symbols-outlined text-sm text-[#840F16]">devices</span>
+                  <span>${isMm ? 'မှာယူခဲ့သည့် ချန်နယ်' : 'Booking Channel'}</span>
+                </div>
+                <div class="font-body text-xs font-medium text-[#58413f]">
+                  ${isMm ? 'EzBookNow အွန်လိုင်း ဝဘ်ဆိုက်' : 'EzBookNow Web Portal'}
+                  ${res.createdAt ? ` • <span class="text-[#7A6B65]">${res.createdAt}</span>` : ''}
+                </div>
+              </div>
+
+            </div>
+
+            <!-- Notes & Special Requests -->
+            <div class="p-4 sm:p-5 rounded-xl bg-[#FAF3E8] border border-[#EADFD1] space-y-1.5">
+              <div class="text-xs font-bold text-[#58413f] flex items-center gap-1.5 uppercase tracking-wider">
+                <span class="material-symbols-outlined text-base text-[#840F16]">note_alt</span>
+                <span>${isMm ? 'အထူးမှာကြားချက်နှင့် ဓာတ်မတည့်မှုများ' : 'Special Requests & Dietary Notes'}</span>
+              </div>
+              <p class="text-xs sm:text-sm text-[#231916] leading-relaxed">
+                ${res.specialRequests || (isMm ? 'အထူးမှာကြားချက် မရှိပါ' : 'No specific dietary notes or special requests provided.')}
               </p>
             </div>
 
-            <!-- Primary Action Buttons Row -->
-            <div class="flex flex-wrap items-center gap-2.5 w-full md:w-auto">
+          </div>
+
+          <!-- SECTION 3: CHANGE AND CANCELLATION ACTIONS -->
+          <div class="bg-[#FFFDF9] rounded-2xl border border-[#EADFD1] p-6 sm:p-8 shadow-sm space-y-6">
+            
+            <div class="flex items-center justify-between border-b border-[#F0E5D8] pb-3">
+              <h2 class="font-headline text-lg sm:text-xl font-bold text-[#231916] flex items-center gap-2">
+                <span class="material-symbols-outlined text-[#840F16]">edit_calendar</span>
+                <span>${isMm ? 'ကြိုတင်စာရင်း ပြင်ဆင်ခြင်းနှင့် ပယ်ဖျက်ခြင်း' : 'Modify or Cancel Reservation'}</span>
+              </h2>
+            </div>
+
+            <!-- Cancellation Policy & Deadline Notice Box -->
+            <div class="p-4 sm:p-5 rounded-xl ${isCancelled ? 'bg-rose-50 border-rose-200' : 'bg-[#FAF3E8] border-[#EADFD1]'} border flex items-start gap-3.5">
+              <span class="material-symbols-outlined ${isCancelled ? 'text-rose-600' : 'text-[#840F16]'} text-2xl shrink-0 mt-0.5">
+                ${isCancelled ? 'cancel' : 'verified_user'}
+              </span>
+              <div class="space-y-1 text-xs sm:text-sm leading-relaxed">
+                ${isCancelled ? `
+                  <div class="font-bold text-rose-900">${isMm ? 'ဤကြိုတင်စာရင်းအား ပယ်ဖျက်ပြီးပါပြီ' : 'This Reservation Has Been Cancelled'}</div>
+                  <p class="text-rose-700">
+                    ${isMm ? 'ကြိုတင်စာရင်း ပယ်ဖျက်ခြင်း ပြီးဆုံးပါပြီ။ ထပ်မံစားသုံးလိုပါက အောက်ပါခလုတ်မှတစ်ဆင့် ပြန်လည်မှာယူနိုင်ပါသည်။' : 'This booking has been cancelled and table released. You may rebook anytime if your plans change.'}
+                  </p>
+                ` : `
+                  <div class="font-bold text-[#231916]">${isMm ? 'အခမဲ့ ပယ်ဖျက်နိုင်မှု စည်းမျဉ်းသတ်မှတ်ချက်' : 'Cancellation & Change Policy'}</div>
+                  <p class="text-[#58413f]">
+                    ${isMm 
+                      ? 'သတ်မှတ်ရက်ချိန်း မတိုင်မီ ၂ နာရီအလိုအထိ အခမဲ့ ပြင်ဆင်ခြင်းနှင့် ပယ်ဖျက်ခြင်း ပြုလုပ်နိုင်ပါသည်။ သတ်မှတ်ချိန်ကျော်လွန်ပါက ဆိုင်သို့ တိုက်ရိုက်ဖုန်းဆက် အကြောင်းကြားပေးပါ။' 
+                      : 'Free cancellation and modification available up to 2 hours before reservation time. For changes within 2 hours of arrival, please contact the restaurant directly.'}
+                  </p>
+                `}
+              </div>
+            </div>
+
+            <!-- Action Buttons Grid -->
+            <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-4 pt-2">
               
-              <!-- Check-In QR Pass Button -->
-              ${!isCancelled ? `
-                <button
-                  id="u09-view-qr-pass-btn"
-                  class="btn-primary px-5 py-3 rounded-full font-label text-xs font-bold shadow-md flex items-center justify-center gap-2 cursor-pointer flex-1 sm:flex-initial"
-                >
-                  <span class="material-symbols-outlined text-base">qr_code_2</span>
-                  <span>${isMm ? 'QR Pass ဖွင့်ပြရန်' : 'Show Check-in Pass'}</span>
-                </button>
-              ` : ''}
-
-              <!-- Change Date & Time Button ("日時を変更") -->
-              ${isModifiable ? `
-                <button
-                  id="u09-change-datetime-btn"
-                  class="px-5 py-3 rounded-full bg-white border border-[#840f16] text-[#840f16] hover:bg-[#840f16] hover:text-white transition-all font-label text-xs font-bold shadow-xs flex items-center justify-center gap-2 cursor-pointer flex-1 sm:flex-initial"
-                >
-                  <span class="material-symbols-outlined text-base">edit_calendar</span>
-                  <span>${isMm ? '日時を変更 (ရက်စွဲ/အချိန် ပြောင်းမည်)' : 'Change Date & Time'}</span>
-                </button>
-              ` : ''}
-
-              <!-- Write Review Button for Completed -->
-              ${isCompleted ? `
-                <button
-                  id="u09-write-review-btn"
-                  class="px-5 py-3 rounded-full bg-[#840f16] text-white hover:bg-[#680b11] transition-all font-label text-xs font-bold shadow-md flex items-center justify-center gap-2 cursor-pointer flex-1 sm:flex-initial"
-                >
-                  <span class="material-symbols-outlined text-base">rate_review</span>
-                  <span>${isMm ? '口コミを書く (Review ရေးရန်)' : 'Write Review (口コミを書く)'}</span>
-                </button>
-              ` : ''}
-
-              <!-- One-Tap Re-Booking for Completed or Cancelled -->
-              ${(isCompleted || isCancelled) ? `
-                <button
-                  id="u09-rebook-btn"
-                  class="px-5 py-3 rounded-full bg-[#104b2b] text-white hover:bg-[#0c3920] transition-all font-label text-xs font-bold shadow-md flex items-center justify-center gap-2 cursor-pointer flex-1 sm:flex-initial"
-                >
-                  <span class="material-symbols-outlined text-base">repeat</span>
-                  <span>${isMm ? 'One-tap Re-booking (ပြန်လည်မှာယူခြင်း)' : 'One-tap Re-booking'}</span>
-                </button>
-              ` : ''}
+              <!-- Change Reservation Button -->
+              <button
+                id="u09-change-btn"
+                ${!canModify ? 'disabled' : ''}
+                class="flex-1 py-3.5 px-6 rounded-full font-label font-bold text-xs sm:text-sm shadow-md flex items-center justify-center gap-2 transition-all ${
+                  canModify
+                    ? 'btn-primary cursor-pointer active:scale-[0.99]'
+                    : 'bg-gray-200 text-gray-400 cursor-not-allowed shadow-none'
+                }"
+              >
+                <span class="material-symbols-outlined text-base">edit</span>
+                <span>${isMm ? 'ကြိုတင်စာရင်း ပြင်ဆင်ရန်' : 'Change Reservation'}</span>
+              </button>
 
               <!-- Cancel Reservation Button -->
-              ${isCancellable ? `
-                <button
-                  id="u09-cancel-booking-btn"
-                  class="px-4 py-3 rounded-full bg-[#FFF8F6] border border-rose-300 text-rose-700 hover:bg-rose-700 hover:text-white transition-colors font-label text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer"
-                >
-                  <span class="material-symbols-outlined text-sm">cancel</span>
-                  <span>${isMm ? 'မှာယူမှုကို ပယ်ဖျက်မည်' : 'Cancel Reservation'}</span>
-                </button>
-              ` : ''}
+              <button
+                id="u09-cancel-btn"
+                ${!canModify ? 'disabled' : ''}
+                class="flex-1 py-3.5 px-6 rounded-full font-label font-bold text-xs sm:text-sm shadow-md flex items-center justify-center gap-2 transition-all ${
+                  canModify
+                    ? 'bg-[#231916] hover:bg-[#3D2C27] text-white cursor-pointer active:scale-[0.99]'
+                    : 'bg-gray-200 text-gray-400 cursor-not-allowed shadow-none'
+                }"
+              >
+                <span class="material-symbols-outlined text-base">close</span>
+                <span>${isMm ? 'ကြိုတင်စာရင်း ပယ်ဖျက်ရန်' : 'Cancel Reservation'}</span>
+              </button>
 
             </div>
 
           </div>
 
-        </div>
-
-        <!-- GRID OF DETAILS (RESTAURANT, SCHEDULE, MENU & BILLING) -->
-        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          
-          <!-- LEFT 2 COLUMNS: VENUE & SCHEDULE & MENU -->
-          <div class="lg:col-span-2 space-y-6">
+          <!-- SECTION 4: SECONDARY ACTIONS & VENUE CONTACT -->
+          <div class="bg-[#FFFDF9] rounded-2xl border border-[#EADFD1] p-6 sm:p-8 shadow-sm space-y-5">
             
-            <!-- SECTION 1: VENUE & SCHEDULE DETAILS -->
-            <div class="bg-[#FBF3E2] rounded-3xl border border-[#EADFD1] p-6 space-y-5 shadow-xs">
-              <div class="flex items-center justify-between border-b border-[#EADFD1] pb-3">
-                <div class="font-label text-xs font-bold text-[#840f16] uppercase tracking-wider flex items-center gap-1.5">
-                  <span class="material-symbols-outlined text-sm">restaurant</span>
-                  <span>${isMm ? '၁။ ဆိုင်နှင့် ကြိုတင်မှာယူမှု အချိန်ဇယား' : '1. Venue & Schedule Details'}</span>
-                </div>
-                <button id="u09-view-restaurant-page-btn" class="font-label text-xs font-bold text-[#840f16] hover:underline flex items-center gap-1 cursor-pointer">
-                  <span>${isMm ? 'ဆိုင်စာမျက်နှာသို့' : 'View Venue Page'}</span>
-                  <span class="material-symbols-outlined text-xs">arrow_forward</span>
-                </button>
-              </div>
+            <div class="flex items-center justify-between border-b border-[#F0E5D8] pb-3">
+              <h2 class="font-headline text-lg sm:text-xl font-bold text-[#231916] flex items-center gap-2">
+                <span class="material-symbols-outlined text-[#840F16]">storefront</span>
+                <span>${isMm ? 'ဆိုင်နှင့် ဆက်သွယ်ရန်နှင့် အခြားလုပ်ဆောင်ချက်များ' : 'Venue Contact & Secondary Actions'}</span>
+              </h2>
+            </div>
 
-              <!-- Venue Header Card -->
-              <div class="flex flex-col sm:flex-row gap-4 items-start">
-                <div class="w-full sm:w-36 h-28 rounded-2xl overflow-hidden border border-[#EADFD1] shrink-0">
-                  <img src="${b.restaurantImage}" alt="${b.restaurantName}" referrerpolicy="no-referrer" loading="lazy" class="w-full h-full object-cover" />
+            <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3.5">
+              
+              <!-- Call Shop Concierge -->
+              <button
+                id="u09-call-shop-btn"
+                data-phone="${res.phone || '+95 1 541 997'}"
+                class="p-4 rounded-2xl bg-[#FAF3E8] hover:bg-[#F2E5D4] border border-[#EADFD1] hover:border-[#840F16]/40 text-left transition-all flex items-center gap-3.5 cursor-pointer group shadow-2xs"
+              >
+                <div class="w-11 h-11 rounded-xl bg-white border border-[#EADFD1] group-hover:border-[#840F16]/30 group-hover:bg-[#FFF8F6] text-[#840F16] flex items-center justify-center transition-colors shrink-0 shadow-2xs">
+                  <span class="material-symbols-outlined text-xl text-[#840F16]">call</span>
                 </div>
-                <div class="space-y-1.5 flex-1 min-w-0">
-                  <h3 class="font-headline text-xl font-bold text-[#231916]">
-                    ${isMm && b.restaurantNameMM ? b.restaurantNameMM : b.restaurantName}
-                  </h3>
-                  <p class="font-body text-xs text-[#58413f] flex items-center gap-1.5">
-                    <span class="material-symbols-outlined text-sm text-[#840f16]">location_on</span>
-                    <span>${b.address || b.location}</span>
-                  </p>
-                  <p class="font-body text-xs text-[#58413f] flex items-center gap-1.5">
-                    <span class="material-symbols-outlined text-sm text-[#840f16]">call</span>
-                    <span>${b.restaurantPhone || '+95 9 798 123 456'}</span>
-                  </p>
-                  <div class="flex flex-wrap gap-1.5 pt-1">
-                    ${(b.seatingTags || ['Lake View', 'Window Table', 'Non-Smoking']).map(tag => `
-                      <span class="px-2 py-0.5 rounded-md bg-white border border-[#EADFD1] font-label text-[10px] font-bold text-[#58413f]">
-                        # ${tag}
-                      </span>
-                    `).join('')}
-                  </div>
+                <div class="min-w-0">
+                  <div class="text-xs font-bold text-[#231916] group-hover:text-[#840F16] transition-colors truncate">${isMm ? 'ဆိုင်သို့ ဖုန်းခေါ်ဆိုရန်' : 'Call Restaurant'}</div>
+                  <div class="text-[11px] font-mono text-[#58413f] truncate">${res.phone || '+95 1 541 997'}</div>
                 </div>
-              </div>
+              </button>
 
-              <!-- Schedule Grid Breakdown -->
-              <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2">
-                <div class="bg-white/80 p-3.5 rounded-2xl border border-[#EADFD1] text-left">
-                  <div class="font-label text-[10px] font-bold text-[#58413f] uppercase tracking-wider">${isMm ? 'လာရောက်မည့် ရက်စွဲ' : 'Dining Date'}</div>
-                  <div class="font-headline font-bold text-sm text-[#231916] flex items-center gap-1.5 mt-1">
-                    <span class="material-symbols-outlined text-sm text-[#840f16]">calendar_month</span>
-                    <span>${b.date}</span>
-                  </div>
+              <!-- Add to Calendar -->
+              <button
+                id="u09-calendar-btn"
+                class="p-4 rounded-2xl bg-[#FAF3E8] hover:bg-[#F2E5D4] border border-[#EADFD1] hover:border-[#840F16]/40 text-left transition-all flex items-center gap-3.5 cursor-pointer group shadow-2xs"
+              >
+                <div class="w-11 h-11 rounded-xl bg-white border border-[#EADFD1] group-hover:border-[#840F16]/30 group-hover:bg-[#FFF8F6] text-[#840F16] flex items-center justify-center transition-colors shrink-0 shadow-2xs">
+                  <span class="material-symbols-outlined text-xl text-[#840F16]">event</span>
                 </div>
+                <div class="min-w-0">
+                  <div class="text-xs font-bold text-[#231916] group-hover:text-[#840F16] transition-colors truncate">${isMm ? 'ပြက္ခဒိန်တွင် သိမ်းရန်' : 'Add to Calendar'}</div>
+                  <div class="text-[11px] text-[#58413f] truncate">${res.date} • ${res.time}</div>
+                </div>
+              </button>
 
-                <div class="bg-white/80 p-3.5 rounded-2xl border border-[#EADFD1] text-left">
-                  <div class="font-label text-[10px] font-bold text-[#58413f] uppercase tracking-wider">${isMm ? 'လာရောက်မည့် အချိန်' : 'Dining Time'}</div>
-                  <div class="font-headline font-bold text-sm text-[#231916] flex items-center gap-1.5 mt-1">
-                    <span class="material-symbols-outlined text-sm text-[#840f16]">schedule</span>
-                    <span>${b.time}</span>
-                  </div>
+              <!-- Get Directions / Map -->
+              <button
+                id="u09-map-btn"
+                data-address="${res.address || res.location || 'Yangon'}"
+                class="p-4 rounded-2xl bg-[#FAF3E8] hover:bg-[#F2E5D4] border border-[#EADFD1] hover:border-[#840F16]/40 text-left transition-all flex items-center gap-3.5 cursor-pointer group shadow-2xs"
+              >
+                <div class="w-11 h-11 rounded-xl bg-white border border-[#EADFD1] group-hover:border-[#840F16]/30 group-hover:bg-[#FFF8F6] text-[#840F16] flex items-center justify-center transition-colors shrink-0 shadow-2xs">
+                  <span class="material-symbols-outlined text-xl text-[#840F16]">map</span>
                 </div>
-
-                <div class="bg-white/80 p-3.5 rounded-2xl border border-[#EADFD1] text-left">
-                  <div class="font-label text-[10px] font-bold text-[#58413f] uppercase tracking-wider">${isMm ? 'ဧည့်သည် လူဦးရေ' : 'Party Size'}</div>
-                  <div class="font-headline font-bold text-sm text-[#231916] flex items-center gap-1.5 mt-1">
-                    <span class="material-symbols-outlined text-sm text-[#840f16]">group</span>
-                    <span>${b.guests} ${isMm ? 'ဦး (Guests)' : 'Guests'}</span>
-                  </div>
+                <div class="min-w-0">
+                  <div class="text-xs font-bold text-[#231916] group-hover:text-[#840F16] transition-colors truncate">${isMm ? 'လမ်းညွှန် မြေပုံကြည့်ရန်' : 'View Location Map'}</div>
+                  <div class="text-[11px] text-[#58413f] truncate">${restLocation}</div>
                 </div>
-              </div>
-
-              <!-- Seating Preference & Special Requests -->
-              <div class="bg-white/80 p-4 rounded-2xl border border-[#EADFD1] space-y-2 text-left">
-                <div class="flex items-center justify-between">
-                  <span class="font-label text-xs font-bold text-[#58413f]">${isMm ? 'ကြိုက်နှစ်သက်ရာ နေရာ (Seating Preference):' : 'Seating Preference:'}</span>
-                  <span class="font-headline font-bold text-xs text-[#840f16]">${b.seatingPreference || 'Lake View Window Table'}</span>
-                </div>
-                ${b.specialRequests ? `
-                  <div class="border-t border-[#EADFD1] pt-2">
-                    <span class="font-label text-[11px] font-bold text-[#58413f] block mb-0.5">${isMm ? 'သီးသန့် တောင်းဆိုချက် (Special Requests):' : 'Special Guest Requests:'}</span>
-                    <p class="font-body text-xs text-[#231916] italic bg-[#FFF8F6] p-2.5 rounded-xl border border-[#EADFD1]">
-                      "${b.specialRequests}"
-                    </p>
-                  </div>
-                ` : ''}
-              </div>
+              </button>
 
             </div>
 
-            <!-- SECTION 2: SELECTED MENU & COURSE ITEMS -->
-            <div class="bg-[#FBF3E2] rounded-3xl border border-[#EADFD1] p-6 space-y-4 shadow-xs">
-              <div class="flex items-center justify-between border-b border-[#EADFD1] pb-3">
-                <div class="font-label text-xs font-bold text-[#840f16] uppercase tracking-wider flex items-center gap-1.5">
-                  <span class="material-symbols-outlined text-sm">menu_book</span>
-                  <span>${isMm ? '၂။ ရွေးချယ်ထားသော မီနူးနှင့် ဟင်းလျာများ' : '2. Selected Course & Menu Plan'}</span>
-                </div>
-                <span class="px-2.5 py-0.5 rounded-full bg-[#840f16]/10 text-[#840f16] text-[10px] font-label font-bold">
-                  ${b.guests} x Set Menu
-                </span>
-              </div>
-
-              <!-- Course Title -->
-              <div class="bg-white/90 p-4 rounded-2xl border border-[#EADFD1] space-y-1">
-                <h4 class="font-headline font-bold text-base text-[#231916]">
-                  ${isMm && b.courseNameMM ? b.courseNameMM : (b.courseName || 'Chef Premium Degustation Course')}
-                </h4>
-                <p class="font-body text-xs text-[#58413f]">
-                  ${isMm ? 'ရာသီအလိုက် အကောင်းဆုံး ပါဝင်ပစ္စည်းများဖြင့် စီမံထားသော စားဖိုမှူးလက်ရာ ဟင်းလျာတွဲ' : 'Curated multi-course dining experience crafted by the executive chef.'}
-                </p>
-              </div>
-
-              <!-- Menu Items List -->
-              ${b.menuItems && b.menuItems.length > 0 ? `
-                <div class="space-y-2">
-                  ${b.menuItems.map((item, idx) => `
-                    <div class="flex items-center justify-between bg-white/70 p-3 rounded-xl border border-[#EADFD1] text-xs">
-                      <div class="flex items-center gap-2.5">
-                        <span class="w-5 h-5 rounded-full bg-[#840f16]/10 text-[#840f16] font-bold text-[10px] flex items-center justify-center shrink-0">
-                          ${idx + 1}
-                        </span>
-                        <div>
-                          <div class="font-headline font-bold text-[#231916]">${isMm && item.nameMM ? item.nameMM : item.name}</div>
-                          ${item.qty ? `<div class="font-body text-[10px] text-[#58413f]">${isMm ? 'အရေအတွက်:' : 'Quantity:'} ${item.qty} ${isMm ? 'ပွဲ' : 'Portions'}</div>` : ''}
-                        </div>
-                      </div>
-                      <div class="font-label font-bold text-[#840f16] text-right">
-                        <div>${formatMMK(item.priceMMK)}</div>
-                        <div class="text-[10px] text-[#58413f] font-normal">${formatUSD(item.priceMMK)}</div>
-                      </div>
-                    </div>
-                  `).join('')}
-                </div>
-              ` : `
-                <div class="p-3 bg-white/60 rounded-xl border border-[#EADFD1] text-xs text-[#58413f] italic">
-                  ${isMm ? 'အထူး ရွေးချယ်ထားသော စားဖိုမှူးလက်ရာ စားသောက်ပွဲ' : 'Standard à la carte & beverage reservation plan.'}
-                </div>
-              `}
-
-            </div>
-
-            <!-- SECTION 3: CHANGE & CANCELLATION RULES -->
-            <div class="bg-[#FBF3E2] rounded-3xl border border-[#EADFD1] p-6 space-y-4 shadow-xs">
-              <div class="font-label text-xs font-bold text-[#840f16] uppercase tracking-wider flex items-center gap-1.5 border-b border-[#EADFD1] pb-3">
-                <span class="material-symbols-outlined text-sm">gavel</span>
-                <span>${isMm ? '၃။ ပြင်ဆင်ခြင်းနှင့် ပယ်ဖျက်ခြင်းဆိုင်ရာ စည်းမျဉ်းများ' : '3. Change & Cancellation Policy'}</span>
-              </div>
-
-              <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs leading-relaxed">
-                <div class="bg-white/80 p-4 rounded-2xl border border-[#EADFD1] space-y-1.5">
-                  <div class="font-headline font-bold text-[#231916] flex items-center gap-1 text-xs">
-                    <span class="material-symbols-outlined text-sm text-[#104b2b]">check_circle</span>
-                    <span>${isMm ? 'အခမဲ့ ပယ်ဖျက်နိုင်သည့် သတ်မှတ်ချိန်' : 'Free Cancellation Window'}</span>
-                  </div>
-                  <p class="text-[#58413f] text-[11px]">
-                    ${isMm && b.cancellationPolicyMM ? b.cancellationPolicyMM : (b.cancellationPolicy || `Free cancellation up to ${b.cancelHours || 24} hours prior to reservation time.`)}
-                  </p>
-                </div>
-
-                <div class="bg-white/80 p-4 rounded-2xl border border-[#EADFD1] space-y-1.5">
-                  <div class="font-headline font-bold text-[#231916] flex items-center gap-1 text-xs">
-                    <span class="material-symbols-outlined text-sm text-amber-600">info</span>
-                    <span>${isMm ? 'ပြင်ဆင်မှု ကန့်သတ်ချက်များ' : 'Change Modification Rules'}</span>
-                  </div>
-                  <p class="text-[#58413f] text-[11px]">
-                    ${isMm 
-                      ? 'မှာယူမှုအမျိုးအစား၊ ပေးချယ်မှုပုံစံနှင့် ကူပွန်များကို ပြောင်းလဲ၍မရပါ။ လူဦးရေ ပြောင်းလဲပါက စုစုပေါင်းငွေကို ပြန်လည်တွက်ချက်ပါမည်။' 
-                      : 'Reservation type, payment method, and promo coupons cannot be modified online. Party size adjustments recalculate billing.'}
-                  </p>
-                </div>
-              </div>
-
-              <!-- Fee Schedule Table -->
-              <div class="bg-white/90 rounded-2xl border border-[#EADFD1] p-3 text-xs">
-                <div class="font-label text-[10px] font-bold text-[#58413f] uppercase mb-2">
-                  ${isMm ? 'ပယ်ဖျက်ခ တွက်ချက်မှုဇယား (Cancellation Fee Schedule)' : 'Cancellation Fee Schedule'}
-                </div>
-                <div class="space-y-1.5">
-                  <div class="flex justify-between text-[#104b2b] font-semibold text-[11px]">
-                    <span>${isMm ? 'လာရောက်မည့်အချိန်မတိုင်မီ ၂၄ နာရီအလိုအထိ' : 'More than 24 hours prior'}</span>
-                    <span>0% (0 MMK - ${isMm ? 'အခမဲ့' : 'Free'})</span>
-                  </div>
-                  <div class="flex justify-between text-amber-700 font-semibold text-[11px]">
-                    <span>${isMm ? 'လာရောက်မည့်အချိန်မတိုင်မီ ၁၂ - ၂၄ နာရီအတွင်း' : 'Within 12 - 24 hours'}</span>
-                    <span>50% (${formatMMK(amountMmk * 0.5)})</span>
-                  </div>
-                  <div class="flex justify-between text-rose-700 font-semibold text-[11px]">
-                    <span>${isMm ? '၁၂ နာရီအတွင်း သို့မဟုတ် လာမရောက်ပါက (No-show)' : 'Less than 12 hours / No-show'}</span>
-                    <span>100% (${formatMMK(amountMmk)})</span>
-                  </div>
-                </div>
-              </div>
-
-            </div>
-
-          </div>
-
-          <!-- RIGHT 1 COLUMN: BILLING, PRIMARY GUEST & QR PASS CARD -->
-          <div class="space-y-6">
-            
-            <!-- BILLING SUMMARY (MMK Primary, USD Secondary) -->
-            <div class="bg-[#FBF3E2] rounded-3xl border border-[#EADFD1] p-6 space-y-4 shadow-sm text-left">
-              <div class="font-label text-xs font-bold text-[#840f16] uppercase tracking-wider border-b border-[#EADFD1] pb-3 flex items-center gap-1.5">
-                <span class="material-symbols-outlined text-sm">payments</span>
-                <span>${isMm ? 'ကျသင့်ငွေ အကျဉ်းချုပ် (Billing Summary)' : 'Billing Summary'}</span>
-              </div>
-
-              <div class="space-y-2.5 text-xs">
-                <div class="flex justify-between text-[#58413f]">
-                  <span>${isMm ? 'ဟင်းလျာတွဲ နှုန်းထား' : 'Course Set Base'}:</span>
-                  <span class="font-bold text-[#231916]">${formatMMK(amountMmk * 0.85)}</span>
-                </div>
-                <div class="flex justify-between text-[#58413f]">
-                  <span>${isMm ? 'ကုန်သွယ်လုပ်ငန်းခွန် (5% Tax)' : 'Commercial Tax (5%)'}:</span>
-                  <span class="font-bold text-[#231916]">${formatMMK(amountMmk * 0.05)}</span>
-                </div>
-                <div class="flex justify-between text-[#58413f]">
-                  <span>${isMm ? 'ဝန်ဆောင်ခ (10% Service)' : 'Service Charge (10%)'}:</span>
-                  <span class="font-bold text-[#231916]">${formatMMK(amountMmk * 0.10)}</span>
-                </div>
-
-                <div class="border-t-2 border-[#EADFD1] pt-3 flex flex-col items-end">
-                  <span class="font-label text-[10px] font-bold text-[#58413f] uppercase tracking-wider">${isMm ? 'စုစုပေါင်း ကျသင့်ငွေ' : 'Total Amount Due'}</span>
-                  <div class="font-headline text-2xl font-black text-[#840f16]">
-                    ${formatMMK(amountMmk)}
-                  </div>
-                  <div class="font-label text-xs font-bold text-[#58413f]">
-                    ${formatUSD(amountMmk)}
-                  </div>
-                </div>
-              </div>
-
-              <!-- Payment Details Pill -->
-              <div class="bg-white/80 p-3.5 rounded-2xl border border-[#EADFD1] text-xs space-y-1">
-                <div class="flex justify-between">
-                  <span class="text-[#58413f]">${isMm ? 'ပေးချေမှုစနစ်:' : 'Payment Method:'}</span>
-                  <span class="font-bold text-[#231916]">${b.paymentMethod || 'KBZPay QR'}</span>
-                </div>
-                <div class="flex justify-between">
-                  <span class="text-[#58413f]">${isMm ? 'ငွေပေးချေမှု အခြေအနေ:' : 'Payment Status:'}</span>
-                  <span class="font-bold text-[#104b2b]">${b.paymentStatus || 'Deposit Verified'}</span>
-                </div>
-              </div>
-            </div>
-
-            <!-- PRIMARY GUEST CONTACT INFO -->
-            <div class="bg-[#FBF3E2] rounded-3xl border border-[#EADFD1] p-6 space-y-3 shadow-sm text-left">
-              <div class="font-label text-xs font-bold text-[#840f16] uppercase tracking-wider border-b border-[#EADFD1] pb-3 flex items-center gap-1.5">
-                <span class="material-symbols-outlined text-sm">person</span>
-                <span>${isMm ? 'ဧည့်သည် ဆက်သွယ်ရန် အချက်အလက်' : 'Primary Guest Info'}</span>
-              </div>
-
-              <div class="space-y-2 text-xs">
-                <div class="flex justify-between">
-                  <span class="text-[#58413f]">${isMm ? 'ဧည့်သည်အမည်:' : 'Full Name:'}</span>
-                  <span class="font-bold text-[#231916]">${b.guestName}</span>
-                </div>
-                <div class="flex justify-between">
-                  <span class="text-[#58413f]">${isMm ? 'ဖုန်းနံပါတ်:' : 'Phone Number:'}</span>
-                  <span class="font-bold text-[#231916]">${b.guestPhone}</span>
-                </div>
-                <div class="flex justify-between">
-                  <span class="text-[#58413f]">${isMm ? 'အီးမေးလ်:' : 'Email:'}</span>
-                  <span class="font-bold text-[#231916]">${b.guestEmail}</span>
-                </div>
-              </div>
-            </div>
-
-            <!-- INSTANT CHECK-IN PASS PREVIEW -->
-            ${!isCancelled ? `
-              <div class="bg-[#231916] text-[#FFF7E8] rounded-3xl p-6 shadow-xl space-y-4 text-center">
-                <div class="font-label text-xs font-bold text-[#e8c078] uppercase tracking-wider flex items-center justify-center gap-1.5">
-                  <span class="material-symbols-outlined text-sm">verified_user</span>
-                  <span>Official QR Dining Pass</span>
-                </div>
-
-                <div class="p-3 bg-white rounded-2xl inline-block shadow-md">
-                  <img
-                    src="${window.YoyakuPrototype ? window.YoyakuPrototype.createQrDataUri(`YOYAKU-${b.reservationNo}`) : ''}"
-                    alt="QR Pass"
-                    class="w-32 h-32 object-contain mx-auto"
-                  />
-                </div>
-
-                <div class="space-y-0.5">
-                  <div class="font-headline font-bold text-sm text-white">${b.restaurantName}</div>
-                  <div class="font-label text-xs text-[#e8c078]">${b.date} • ${b.time}</div>
-                </div>
-
+            <!-- Rebook Button (if cancelled/completed) -->
+            ${(isCancelled || isCompleted) ? `
+              <div class="pt-2">
                 <button
-                  id="u09-view-qr-pass-btn-2"
-                  class="w-full btn-primary py-2.5 rounded-full font-label text-xs font-bold cursor-pointer"
+                  id="u09-rebook-btn"
+                  data-rest-id="${res.restaurantId || '1'}"
+                  class="btn-primary w-full py-3.5 px-6 rounded-full font-label font-bold text-xs sm:text-sm shadow-md flex items-center justify-center gap-2 transition-all cursor-pointer"
                 >
-                  ${isMm ? 'Pass အပြည့်အစုံ ကြည့်မည်' : 'Enlarge Digital Pass'}
+                  <span class="material-symbols-outlined text-base">repeat</span>
+                  <span>${isMm ? 'ယခင်အချက်အလက်များဖြင့် ပြန်လည်မှာယူရန်' : 'Rebook This Restaurant'}</span>
                 </button>
               </div>
             ` : ''}
 
           </div>
 
+        </main>
+
+        <!-- =================================================================== -->
+        <!-- MODALS: CHANGE RESERVATION MODAL -->
+        <!-- =================================================================== -->
+        <div id="u09-change-modal" class="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 hidden">
+          <div class="bg-[#FFF8F6] rounded-3xl border-2 border-[#EADFD1] shadow-2xl max-w-lg w-full p-6 sm:p-8 space-y-6 relative z-10 opacity-100 animate-in fade-in zoom-in-95 duration-200">
+            
+            <div class="flex items-center justify-between border-b-2 border-[#EADFD1] pb-3.5">
+              <div class="flex items-center gap-2.5">
+                <div class="w-9 h-9 rounded-xl bg-[#840F16]/10 flex items-center justify-center text-[#840F16]">
+                  <span class="material-symbols-outlined text-xl">edit_calendar</span>
+                </div>
+                <h3 class="font-headline text-lg sm:text-xl font-bold text-[#231916]">
+                  ${isMm ? 'ရက်စွဲနှင့် အချိန် ပြင်ဆင်ရန်' : 'Change Reservation Details'}
+                </h3>
+              </div>
+              <button id="u09-close-change-modal-btn" class="w-8 h-8 rounded-full bg-[#FAF3E8] hover:bg-[#EADFD1] flex items-center justify-center text-[#58413f] hover:text-[#231916] cursor-pointer transition-colors">
+                <span class="material-symbols-outlined text-lg">close</span>
+              </button>
+            </div>
+
+            <form id="u09-change-form" class="space-y-4 text-left">
+              
+              <!-- Date Input -->
+              <div class="space-y-1">
+                <label class="text-xs font-bold text-[#58413f] uppercase tracking-wider">${isMm ? 'ရက်စွဲ အသစ်' : 'New Date'}</label>
+                <input
+                  type="date"
+                  id="u09-change-date-input"
+                  value="2026-08-26"
+                  class="w-full px-4 py-3 rounded-2xl border-2 border-[#EADFD1] bg-white text-[#231916] font-medium text-sm focus:outline-none focus:border-[#840F16] shadow-xs"
+                  required
+                />
+              </div>
+
+              <!-- Time Select -->
+              <div class="space-y-1">
+                <label class="text-xs font-bold text-[#58413f] uppercase tracking-wider">${isMm ? 'အချိန် အသစ်' : 'New Time'}</label>
+                <select
+                  id="u09-change-time-select"
+                  class="w-full px-4 py-3 rounded-2xl border-2 border-[#EADFD1] bg-white text-[#231916] font-medium text-sm focus:outline-none focus:border-[#840F16] shadow-xs"
+                >
+                  <option value="17:30">17:30</option>
+                  <option value="18:00">18:00</option>
+                  <option value="18:30">18:30</option>
+                  <option value="19:00">19:00</option>
+                  <option value="19:30" selected>19:30</option>
+                  <option value="20:00">20:00</option>
+                  <option value="20:30">20:30</option>
+                  <option value="21:00">21:00</option>
+                </select>
+              </div>
+
+              <!-- Guests Stepper -->
+              <div class="space-y-1">
+                <label class="text-xs font-bold text-[#58413f] uppercase tracking-wider">${isMm ? 'ဧည့်သည် အရေအတွက်' : 'Number of Guests'}</label>
+                <div class="flex items-center gap-3">
+                  <button
+                    type="button"
+                    id="u09-guest-minus-btn"
+                    class="w-11 h-11 rounded-2xl bg-[#FAF3E8] hover:bg-[#EADFD1] border border-[#EADFD1] font-bold text-xl text-[#231916] flex items-center justify-center cursor-pointer transition-colors shadow-2xs"
+                  >-</button>
+                  <input
+                    type="number"
+                    id="u09-change-guests-input"
+                    value="${res.guests || 4}"
+                    min="1"
+                    max="20"
+                    class="w-24 text-center py-2.5 rounded-2xl border-2 border-[#EADFD1] bg-white font-headline text-lg font-bold text-[#231916] shadow-xs"
+                  />
+                  <button
+                    type="button"
+                    id="u09-guest-plus-btn"
+                    class="w-11 h-11 rounded-2xl bg-[#FAF3E8] hover:bg-[#EADFD1] border border-[#EADFD1] font-bold text-xl text-[#231916] flex items-center justify-center cursor-pointer transition-colors shadow-2xs"
+                  >+</button>
+                  <span class="text-xs font-semibold text-[#58413f]">${isMm ? 'ဦး' : 'Guests'}</span>
+                </div>
+              </div>
+
+              <!-- Recalculated Amount Preview -->
+              <div class="p-4 rounded-2xl bg-[#FAF3E8] border border-[#EADFD1] flex items-center justify-between text-xs sm:text-sm shadow-2xs">
+                <span class="font-bold text-[#58413f]">${isMm ? 'ခန့်မှန်း ကုန်ကျငွေ စုစုပေါင်း:' : 'Estimated Total:'}</span>
+                <span id="u09-change-total-preview" class="font-headline font-extrabold text-[#840F16] text-base">${formatMMK(res.totalAmountMMK)}</span>
+              </div>
+
+              <div class="pt-3 flex items-center gap-3">
+                <button
+                  type="button"
+                  id="u09-cancel-change-modal-btn"
+                  class="flex-1 py-3.5 px-5 rounded-full bg-[#231916] hover:bg-[#3D2C27] text-white font-label font-bold text-xs shadow-md flex items-center justify-center cursor-pointer transition-all active:scale-[0.98]"
+                >
+                  ${isMm ? 'မလုပ်တော့ပါ' : 'Cancel'}
+                </button>
+                <button
+                  type="submit"
+                  id="u09-submit-change-btn"
+                  class="btn-primary flex-1 py-3.5 px-5 rounded-full font-label font-bold text-xs shadow-md flex items-center justify-center cursor-pointer transition-all active:scale-[0.98]"
+                >
+                  ${isMm ? 'အတည်ပြု ပြောင်းလဲရန်' : 'Confirm Change'}
+                </button>
+              </div>
+
+            </form>
+
+          </div>
         </div>
 
-        <!-- MODALS -->
-        ${renderU09AllModals(state)}
+        <!-- =================================================================== -->
+        <!-- MODALS: CANCEL CONFIRMATION MODAL -->
+        <!-- =================================================================== -->
+        <div id="u09-cancel-modal" class="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 hidden">
+          <div class="bg-[#FFF8F6] rounded-3xl border-2 border-rose-200 shadow-2xl max-w-lg w-full p-6 sm:p-8 space-y-6 relative z-10 opacity-100 animate-in fade-in zoom-in-95 duration-200">
+            
+            <div class="flex items-center justify-between border-b-2 border-rose-100 pb-3.5">
+              <div class="flex items-center gap-2.5">
+                <div class="w-9 h-9 rounded-xl bg-rose-100 flex items-center justify-center text-rose-700">
+                  <span class="material-symbols-outlined text-xl">cancel</span>
+                </div>
+                <h3 class="font-headline text-lg sm:text-xl font-bold text-rose-900">
+                  ${isMm ? 'ကြိုတင်စာရင်း ပယ်ဖျက်ရန် အတည်ပြုခြင်း' : 'Cancel Reservation'}
+                </h3>
+              </div>
+              <button id="u09-close-cancel-modal-btn" class="w-8 h-8 rounded-full bg-[#FAF3E8] hover:bg-[#EADFD1] flex items-center justify-center text-[#58413f] hover:text-[#231916] cursor-pointer transition-colors">
+                <span class="material-symbols-outlined text-lg">close</span>
+              </button>
+            </div>
+
+            <div class="space-y-4 text-left text-sm">
+              <p class="text-[#58413f] leading-relaxed">
+                ${isMm 
+                  ? 'သင်၏ စားပွဲဝိုင်း စိုတ်ထားမှုကို ပယ်ဖျက်လိုပါသလား။ ပယ်ဖျက်ရသည့် အကြောင်းအရင်းကို ရွေးချယ်ပေးပါ။' 
+                  : 'Are you sure you want to cancel this booking? Please select the primary reason for cancellation.'}
+              </p>
+
+              <!-- Reason Radios -->
+              <div class="space-y-2.5 bg-[#FAF3E8] p-4 rounded-2xl border border-[#EADFD1] shadow-2xs">
+                <label class="flex items-center gap-3 text-xs sm:text-sm text-[#231916] font-medium cursor-pointer">
+                  <input type="radio" name="u09-cancel-reason" value="schedule_change" checked class="text-[#840F16] focus:ring-[#840F16] w-4 h-4">
+                  <span>${isMm ? 'အစီအစဉ် ရက်စွဲ/အချိန် ပြောင်းလဲသွားခြင်း' : 'Change in personal schedule or date'}</span>
+                </label>
+                <label class="flex items-center gap-3 text-xs sm:text-sm text-[#231916] font-medium cursor-pointer">
+                  <input type="radio" name="u09-cancel-reason" value="health_emergency" class="text-[#840F16] focus:ring-[#840F16] w-4 h-4">
+                  <span>${isMm ? 'ကျန်းမာရေး သို့မဟုတ် အရေးပေါ်ကိစ္စ' : 'Health or family emergency'}</span>
+                </label>
+                <label class="flex items-center gap-3 text-xs sm:text-sm text-[#231916] font-medium cursor-pointer">
+                  <input type="radio" name="u09-cancel-reason" value="venue_choice" class="text-[#840F16] focus:ring-[#840F16] w-4 h-4">
+                  <span>${isMm ? 'အခြား စားသောက်ဆိုင်သို့ ပြောင်းလဲစားသုံးခြင်း' : 'Selected a different restaurant'}</span>
+                </label>
+                <label class="flex items-center gap-3 text-xs sm:text-sm text-[#231916] font-medium cursor-pointer">
+                  <input type="radio" name="u09-cancel-reason" value="other" class="text-[#840F16] focus:ring-[#840F16] w-4 h-4">
+                  <span>${isMm ? 'အခြား အကြောင်းပြချက်' : 'Other reason'}</span>
+                </label>
+              </div>
+
+              <!-- Cancellation Fee Statement -->
+              <div class="p-3.5 rounded-2xl bg-emerald-50 border border-emerald-300 text-xs text-emerald-900 flex items-center justify-between font-bold shadow-2xs">
+                <span>${isMm ? 'ပယ်ဖျက်ခ ကောက်ခံမှု:' : 'Cancellation Fee:'}</span>
+                <span class="font-extrabold text-emerald-950">${isMm ? 'အခမဲ့ (၀ ကျပ်)' : 'Free (0 MMK)'}</span>
+              </div>
+            </div>
+
+            <div class="pt-2 flex items-center gap-3">
+              <button
+                type="button"
+                id="u09-abort-cancel-modal-btn"
+                class="btn-primary flex-1 py-3.5 px-5 rounded-full font-label font-bold text-xs sm:text-sm shadow-md flex items-center justify-center gap-1.5 cursor-pointer transition-all active:scale-[0.98]"
+              >
+                <span class="material-symbols-outlined text-base">check_circle</span>
+                <span>${isMm ? 'မလုပ်တော့ပါ' : 'Keep Reservation'}</span>
+              </button>
+              <button
+                type="button"
+                id="u09-confirm-cancel-final-btn"
+                class="flex-1 py-3.5 px-5 rounded-full bg-[#231916] hover:bg-[#3D2C27] text-white font-label font-bold text-xs sm:text-sm shadow-md flex items-center justify-center gap-1.5 cursor-pointer transition-all active:scale-[0.98]"
+              >
+                <span class="material-symbols-outlined text-base">cancel</span>
+                <span>${isMm ? 'အတည်ပြု ပယ်ဖျက်မည်' : 'Confirm Cancellation'}</span>
+              </button>
+            </div>
+
+          </div>
+        </div>
+
+        <!-- =================================================================== -->
+        <!-- MODALS: DIGITAL QR PASS MODAL -->
+        <!-- =================================================================== -->
+        <div id="u09-qr-modal" class="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 hidden">
+          <div class="bg-[#FFF8F6] rounded-3xl border-2 border-[#EADFD1] shadow-2xl max-w-sm w-full p-6 text-center space-y-5 relative z-10 opacity-100 animate-in fade-in zoom-in-95 duration-200">
+            
+            <div class="flex items-center justify-between border-b-2 border-[#EADFD1] pb-3.5">
+              <div class="font-headline font-bold text-base text-[#231916] flex items-center gap-2">
+                <span class="material-symbols-outlined text-[#840F16]">qr_code_2</span>
+                <span>${isMm ? 'ဒီဂျစ်တယ် ဝင်ခွင့်ကတ်' : 'Digital QR Pass'}</span>
+              </div>
+              <button id="u09-close-qr-modal-btn" class="w-8 h-8 rounded-full bg-[#FAF3E8] hover:bg-[#EADFD1] flex items-center justify-center text-[#58413f] hover:text-[#231916] cursor-pointer transition-colors">
+                <span class="material-symbols-outlined text-lg">close</span>
+              </button>
+            </div>
+
+            <div class="space-y-1">
+              <div class="text-xs font-semibold text-[#7A6B65]">${restName}</div>
+              <div class="font-mono text-sm font-bold text-[#840F16]">${resNumber}</div>
+            </div>
+
+            <!-- QR Code Graphic Mock -->
+            <div class="p-4 bg-white rounded-2xl border-2 border-[#EADFD1] inline-block shadow-inner mx-auto">
+              <svg class="w-44 h-44 text-[#231916]" viewBox="0 0 100 100" fill="currentColor">
+                <path d="M10 10h30v30h-30zM15 15v20h20v-20zM22 22h6v6h-6zM60 10h30v30h-30zM65 15v20h20v-20zM72 22h6v6h-6zM10 60h30v30h-30zM15 65v20h20v-20zM22 72h6v6h-6zM50 10h5v15h-5zM50 30h10v5h-10zM50 40h5v10h-5zM10 48h15v5h-15zM30 48h15v5h-15zM60 50h10v10h-10zM80 50h10v10h-10zM50 65h10v10h-10zM70 65h20v5h-20zM50 85h15v5h-15zM75 80h15v10h-15z"/>
+              </svg>
+            </div>
+
+            <div class="text-xs text-[#58413f] leading-relaxed">
+              ${isMm ? 'စားသောက်ဆိုင်သို့ ရောက်ရှိချိန်တွင် ဤ QR ကုဒ်အား ဝန်ထမ်းများထံ ပြသပေးပါ။' : 'Present this digital pass at the restaurant reception for instant table check-in.'}
+            </div>
+
+            <button
+              id="u09-dismiss-qr-modal-btn"
+              class="btn-primary w-full py-3 px-5 rounded-full font-label text-xs font-bold shadow-md cursor-pointer"
+            >
+              ${isMm ? 'ပိတ်မည်' : 'Close Pass'}
+            </button>
+
+          </div>
+        </div>
 
       </div>
     `;
   }
 
-  // =========================================================================
-  // MODALS (CHANGE DATE/TIME, CANCEL, REVIEW, QR PASS)
-  // =========================================================================
-  function renderU09AllModals(state) {
-    const isMm = state.currentLanguage === 'MM';
-    const changeM = state.u09ChangeModal;
-    const cancelM = state.u09CancelModal;
-    const reviewM = state.u09ReviewModal;
-    const passM = state.inspectedPassBooking;
+  // Attach Event Listeners for U-09
+  function attachBookingDetailViewEvents(containerElement) {
+    if (!containerElement) return;
 
-    let modalsHtml = '';
-
-    // 1. CHANGE DATE & TIME MODAL ("日時を変更")
-    if (changeM && changeM.isOpen) {
-      const res = state.reservations.find(b => b.id === changeM.reservationId) || {};
-      const dates = [
-        'Aug 20, 2026', 'Aug 21, 2026', 'Aug 22, 2026', 'Aug 23, 2026',
-        'Aug 24, 2026', 'Aug 25, 2026', 'Aug 26, 2026', 'Aug 27, 2026',
-        'Aug 28, 2026', 'Aug 29, 2026', 'Aug 30, 2026'
-      ];
-      const times = ['11:30', '12:00', '12:30', '13:00', '17:30', '18:00', '18:30', '19:00', '19:30', '20:00', '20:30'];
-
-      modalsHtml += `
-        <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
-          <div class="bg-[#FFF7E8] border border-[#EADFD1] rounded-3xl max-w-lg w-full p-6 sm:p-8 shadow-2xl space-y-6 relative max-h-[90vh] overflow-y-auto text-left">
-            
-            <button id="u09-modal-close-btn" class="absolute top-4 right-4 w-9 h-9 rounded-full bg-[#FBF3E2] border border-[#EADFD1] flex items-center justify-center text-[#58413f] hover:text-[#840f16] cursor-pointer">
-              <span class="material-symbols-outlined text-lg">close</span>
-            </button>
-
-            <!-- Header -->
-            <div class="space-y-1 border-b border-[#EADFD1] pb-4">
-              <div class="inline-flex items-center gap-1.5 bg-[#840f16]/10 text-[#840f16] px-3 py-1 rounded-full text-xs font-label font-bold uppercase tracking-wider">
-                <span class="material-symbols-outlined text-xs">edit_calendar</span>
-                <span>${isMm ? '日時を変更 (ရက်စွဲ/အချိန် ပြောင်းမည်)' : 'Change Reservation Date & Time'}</span>
-              </div>
-              <h3 class="font-headline text-2xl font-extrabold text-[#231916]">
-                ${res.restaurantName || 'Change Booking'}
-              </h3>
-              <p class="font-body text-xs text-[#58413f]">
-                ${isMm ? 'သတ်မှတ်ထားသော အခမဲ့ပြင်ဆင်နိုင်သည့် အချိန် (cancel_hours) မတိုင်မီ ရက်စွဲနှင့် အချိန်သစ် ရွေးချယ်နိုင်ပါသည်' : 'Select a new available date, time slot, and guest count before the cutoff deadline.'}
-              </p>
-            </div>
-
-            <!-- Form -->
-            <form id="u09-change-datetime-form" class="space-y-5">
-              
-              <!-- 1. Date Selection -->
-              <div class="space-y-2">
-                <label class="font-label text-xs font-bold text-[#58413f] uppercase tracking-wider flex items-center justify-between">
-                  <span>${isMm ? 'ရက်စွဲ အသစ် ရွေးချယ်ပါ (Select New Date)' : 'Select New Dining Date'}</span>
-                  <span class="text-[#840f16] font-bold">${changeM.date}</span>
-                </label>
-                <div class="grid grid-cols-3 sm:grid-cols-4 gap-2">
-                  ${dates.map(d => {
-                    const isSelected = changeM.date === d;
-                    return `
-                      <button
-                        type="button"
-                        data-u09-select-change-date="${d}"
-                        class="p-2 rounded-xl border text-xs font-label font-bold transition-all text-center cursor-pointer ${
-                          isSelected
-                            ? 'bg-[#840f16] text-white border-[#840f16] shadow-sm'
-                            : 'bg-white text-[#231916] border-[#EADFD1] hover:border-[#840f16]'
-                        }"
-                      >
-                        ${d.split(',')[0]}
-                      </button>
-                    `;
-                  }).join('')}
-                </div>
-              </div>
-
-              <!-- 2. Time Slot Selection -->
-              <div class="space-y-2">
-                <label class="font-label text-xs font-bold text-[#58413f] uppercase tracking-wider flex items-center justify-between">
-                  <span>${isMm ? 'အချိန်ကွက် အသစ် ရွေးချယ်ပါ (Available Time Slots)' : 'Select Available Time Slot'}</span>
-                  <span class="text-[#840f16] font-bold">${changeM.time}</span>
-                </label>
-                <div class="grid grid-cols-4 gap-2">
-                  ${times.map(t => {
-                    const isSelected = changeM.time === t;
-                    return `
-                      <button
-                        type="button"
-                        data-u09-select-change-time="${t}"
-                        class="py-2 rounded-xl border text-xs font-label font-bold transition-all text-center cursor-pointer ${
-                          isSelected
-                            ? 'bg-[#840f16] text-white border-[#840f16] shadow-sm'
-                            : 'bg-white text-[#231916] border-[#EADFD1] hover:border-[#840f16]'
-                        }"
-                      >
-                        ${t}
-                      </button>
-                    `;
-                  }).join('')}
-                </div>
-              </div>
-
-              <!-- 3. Party Size (Guests) -->
-              <div class="space-y-2">
-                <label class="font-label text-xs font-bold text-[#58413f] uppercase tracking-wider">
-                  ${isMm ? 'ဧည့်သည် လူဦးရေ (Party Size)' : 'Party Size (Guests)'}
-                </label>
-                <div class="flex items-center gap-3 bg-white p-3 rounded-2xl border border-[#EADFD1]">
-                  <button
-                    type="button"
-                    id="u09-change-guest-minus"
-                    class="w-9 h-9 rounded-xl bg-[#FBF3E2] border border-[#EADFD1] flex items-center justify-center font-bold text-[#231916] hover:bg-[#840f16] hover:text-white transition-colors cursor-pointer"
-                  >
-                    -
-                  </button>
-                  <div class="flex-1 text-center font-headline font-bold text-base text-[#231916]">
-                    ${changeM.guests} ${isMm ? 'ဦး' : 'Guests'}
-                  </div>
-                  <button
-                    type="button"
-                    id="u09-change-guest-plus"
-                    class="w-9 h-9 rounded-xl bg-[#FBF3E2] border border-[#EADFD1] flex items-center justify-center font-bold text-[#231916] hover:bg-[#840f16] hover:text-white transition-colors cursor-pointer"
-                  >
-                    +
-                  </button>
-                </div>
-              </div>
-
-              <!-- Price Recalculation Notice -->
-              <div class="bg-[#FBF3E2] p-4 rounded-2xl border border-[#EADFD1] space-y-1 text-xs">
-                <div class="flex justify-between font-bold">
-                  <span class="text-[#58413f]">${isMm ? 'စုစုပေါင်း ကျသင့်ငွေ ပြန်လည်တွက်ချက်မှု:' : 'Updated Total Amount:'}</span>
-                  <span class="text-[#840f16] text-sm">${formatMMK(changeM.newAmount)}</span>
-                </div>
-                <div class="text-right text-[11px] text-[#58413f]">
-                  ${formatUSD(changeM.newAmount)}
-                </div>
-              </div>
-
-              <!-- Restrictions Note -->
-              <div class="p-3 bg-amber-50 rounded-xl border border-amber-200 text-[11px] text-amber-900 leading-relaxed">
-                <span class="font-bold">⚠️ ${isMm ? 'စည်းမျဉ်း ကန့်သတ်ချက်များ:' : 'Modification Rules:'}</span>
-                ${isMm 
-                  ? 'မှာယူမှုအမျိုးအစား၊ ပေးချယ်မှုပုံစံနှင့် ကူပွန်များကို ပြောင်းလဲ၍မရပါ။ သတ်မှတ်ချိန် ၂၄ နာရီ မတိုင်မီအထိသာ ပြင်ဆင်နိုင်ပါသည်။' 
-                  : 'Reservation plan type, payment method, and promo coupons cannot be modified. Changes must be finalized 24h prior to dining.'}
-              </div>
-
-              <!-- Submit Button -->
-              <div class="flex gap-3 pt-2">
-                <button
-                  type="button"
-                  id="u09-cancel-change-modal-btn"
-                  class="flex-1 py-3 rounded-2xl bg-white border border-[#EADFD1] font-label text-xs font-bold text-[#58413f] hover:bg-[#FBF3E2] transition-colors cursor-pointer"
-                >
-                  ${isMm ? 'မပြောင်းတော့ပါ' : 'Cancel'}
-                </button>
-                <button
-                  type="submit"
-                  class="flex-1 btn-primary py-3 rounded-2xl font-label text-xs font-bold shadow-md cursor-pointer"
-                >
-                  ${isMm ? 'အတည်ပြု ပြောင်းလဲမည်' : 'Confirm Changes'}
-                </button>
-              </div>
-
-            </form>
-
-          </div>
-        </div>
-      `;
-    }
-
-    // 2. CANCELLATION MODAL (မှာယူမှုကို ပယ်ဖျက်ခြင်း)
-    if (cancelM && cancelM.isOpen) {
-      const res = state.reservations.find(b => b.id === cancelM.reservationId) || {};
-      const totalAmount = res.totalAmountMMK || res.totalAmount || 350000;
-      const feeAmount = cancelM.feeAmount || 0;
-
-      modalsHtml += `
-        <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
-          <div class="bg-[#FFF7E8] border border-[#EADFD1] rounded-3xl max-w-lg w-full p-6 sm:p-8 shadow-2xl space-y-6 relative max-h-[90vh] overflow-y-auto text-left">
-            
-            <button id="u09-modal-close-btn" class="absolute top-4 right-4 w-9 h-9 rounded-full bg-[#FBF3E2] border border-[#EADFD1] flex items-center justify-center text-[#58413f] hover:text-[#840f16] cursor-pointer">
-              <span class="material-symbols-outlined text-lg">close</span>
-            </button>
-
-            <!-- Header -->
-            <div class="space-y-1 border-b border-[#EADFD1] pb-4">
-              <div class="inline-flex items-center gap-1.5 bg-rose-100 text-rose-800 px-3 py-1 rounded-full text-xs font-label font-bold uppercase tracking-wider">
-                <span class="material-symbols-outlined text-xs">cancel</span>
-                <span>${isMm ? 'မှာယူမှုကို ပယ်ဖျက်ခြင်း' : 'Cancel Table Reservation'}</span>
-              </div>
-              <h3 class="font-headline text-2xl font-extrabold text-[#231916]">
-                ${res.restaurantName || 'Cancel Booking'}
-              </h3>
-              <p class="font-body text-xs text-[#58413f]">
-                ${isMm ? 'မှာယူမှုနံပါတ်' : 'Reservation Code'}: <strong>${res.reservationNo}</strong> (${res.date} • ${res.time})
-              </p>
-            </div>
-
-            <!-- Cancellation Fee Breakdown Box -->
-            <div class="bg-[#FBF3E2] p-4 rounded-2xl border border-[#EADFD1] space-y-2 text-xs">
-              <div class="font-label text-[10px] font-bold text-[#840f16] uppercase tracking-wider">
-                ${isMm ? 'ပယ်ဖျက်ခ စနစ်မှ တွက်ချက်ပြသခြင်း (Cancellation Fee Calculation)' : 'System Calculated Cancellation Fee'}
-              </div>
-              <div class="flex justify-between items-center pt-1 border-t border-[#EADFD1]">
-                <span class="text-[#58413f]">${isMm ? 'မူလ စုစုပေါင်း ကျသင့်ငွေ:' : 'Original Total Billing:'}</span>
-                <span class="font-bold text-[#231916]">${formatMMK(totalAmount)}</span>
-              </div>
-              <div class="flex justify-between items-center">
-                <span class="text-[#58413f]">${isMm ? 'ကျသင့်မည့် ပယ်ဖျက်ခ (Cancellation Fee):' : 'Applicable Cancellation Fee:'}</span>
-                <span class="font-bold text-rose-700 text-sm">
-                  ${feeAmount === 0 ? `0 MMK (0% Free Cancellation / အခမဲ့)` : formatMMK(feeAmount)}
-                </span>
-              </div>
-              <p class="text-[11px] text-[#58413f] pt-1 leading-relaxed">
-                ${isMm 
-                  ? 'ဆိုင်၏ စည်းမျဉ်းအရ သတ်မှတ်ချိန် ၂၄ နာရီ မတိုင်မီ ပယ်ဖျက်ပါက ပယ်ဖျက်ခ ကင်းလွတ်ခွင့် ရရှိပါသည်' 
-                  : 'Per venue policy, cancellations initiated before the 24-hour deadline incur no cancellation penalties.'}
-              </p>
-            </div>
-
-            <!-- Reason Form -->
-            <form id="u09-cancel-booking-form" class="space-y-4">
-              <div class="space-y-2">
-                <label class="font-label text-xs font-bold text-[#58413f] uppercase tracking-wider">
-                  ${isMm ? 'ပယ်ဖျက်ရသည့် အကြောင်းအရင်းကို ရွေးချယ်ပါ' : 'Please select reason for cancellation'}
-                </label>
-                
-                <div class="space-y-1.5">
-                  <label class="flex items-center gap-2 bg-white p-3 rounded-xl border border-[#EADFD1] cursor-pointer text-xs">
-                    <input type="radio" name="cancel_reason" value="schedule_change" checked class="text-[#840f16] focus:ring-[#840f16]" />
-                    <span>${isMm ? 'အစီအစဉ် ပြောင်းလဲသွား၍' : 'Change of schedule / plans'}</span>
-                  </label>
-                  <label class="flex items-center gap-2 bg-white p-3 rounded-xl border border-[#EADFD1] cursor-pointer text-xs">
-                    <input type="radio" name="cancel_reason" value="wrong_booking" class="text-[#840f16] focus:ring-[#840f16]" />
-                    <span>${isMm ? 'ရက်စွဲ/အချိန် မှားယွင်းစိုတ်မိ၍' : 'Accidentally selected wrong date or time'}</span>
-                  </label>
-                  <label class="flex items-center gap-2 bg-white p-3 rounded-xl border border-[#EADFD1] cursor-pointer text-xs">
-                    <input type="radio" name="cancel_reason" value="another_venue" class="text-[#840f16] focus:ring-[#840f16]" />
-                    <span>${isMm ? 'အခြား စားသောက်ဆိုင်သို့ ပြောင်းလဲစားသောက်မည် ဖြစ်၍' : 'Selected a different restaurant'}</span>
-                  </label>
-                  <label class="flex items-center gap-2 bg-white p-3 rounded-xl border border-[#EADFD1] cursor-pointer text-xs">
-                    <input type="radio" name="cancel_reason" value="personal_emergency" class="text-[#840f16] focus:ring-[#840f16]" />
-                    <span>${isMm ? 'ကျန်းမာရေး သို့မဟုတ် အရေးပေါ်ကိစ္စကြောင့်' : 'Health or personal emergency'}</span>
-                  </label>
-                </div>
-              </div>
-
-              <!-- Actions -->
-              <div class="flex gap-3 pt-2">
-                <button
-                  type="button"
-                  id="u09-cancel-modal-dismiss-btn"
-                  class="flex-1 py-3 rounded-2xl bg-white border border-[#EADFD1] font-label text-xs font-bold text-[#58413f] hover:bg-[#FBF3E2] transition-colors cursor-pointer"
-                >
-                  ${isMm ? 'မပယ်ဖျက်တော့ပါ' : 'Keep Reservation'}
-                </button>
-                <button
-                  type="submit"
-                  class="flex-1 py-3 rounded-2xl bg-rose-700 hover:bg-rose-800 text-white font-label text-xs font-bold shadow-md cursor-pointer transition-colors"
-                >
-                  ${isMm ? 'မှာယူမှုကို ပယ်ဖျက်မည်' : 'Confirm Cancellation'}
-                </button>
-              </div>
-
-            </form>
-
-          </div>
-        </div>
-      `;
-    }
-
-    // 3. WRITE REVIEW MODAL (口コミを書く)
-    if (reviewM && reviewM.isOpen) {
-      modalsHtml += `
-        <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
-          <div class="bg-[#FFF7E8] border border-[#EADFD1] rounded-3xl max-w-lg w-full p-6 sm:p-8 shadow-2xl space-y-6 relative max-h-[90vh] overflow-y-auto text-left">
-            
-            <button id="u09-modal-close-btn" class="absolute top-4 right-4 w-9 h-9 rounded-full bg-[#FBF3E2] border border-[#EADFD1] flex items-center justify-center text-[#58413f] hover:text-[#840f16] cursor-pointer">
-              <span class="material-symbols-outlined text-lg">close</span>
-            </button>
-
-            <!-- Header -->
-            <div class="space-y-1 border-b border-[#EADFD1] pb-4">
-              <div class="inline-flex items-center gap-1.5 bg-[#e8c078]/30 text-[#840f16] px-3 py-1 rounded-full text-xs font-label font-bold uppercase tracking-wider">
-                <span class="material-symbols-outlined text-xs">rate_review</span>
-                <span>${isMm ? '口コミを書く (Review ရေးရန်)' : 'Write Dining Review'}</span>
-              </div>
-              <h3 class="font-headline text-2xl font-extrabold text-[#231916]">
-                ${reviewM.restaurantName}
-              </h3>
-              <p class="font-body text-xs text-[#58413f]">
-                ${isMm ? 'စားသောက်မှု အတွေ့အကြုံကို ဝေမျှပြီး +500 Gourmet Points ရယူပါ' : 'Share your genuine dining experience and earn +500 Gourmet Points.'}
-              </p>
-            </div>
-
-            <!-- Review Form -->
-            <form id="u09-review-form" class="space-y-4">
-              
-              <!-- Star Rating Ratings -->
-              <div class="space-y-3 bg-[#FBF3E2] p-4 rounded-2xl border border-[#EADFD1]">
-                
-                <div class="flex justify-between items-center">
-                  <span class="font-headline font-bold text-xs text-[#231916]">${isMm ? 'အလုံးစုံ ကျေနပ်မှု (Overall Rating)' : 'Overall Rating'}</span>
-                  <div class="flex gap-1 text-[#840f16]">
-                    ${[1, 2, 3, 4, 5].map(star => `
-                      <button type="button" data-u09-star-overall="${star}" class="cursor-pointer">
-                        <span class="material-symbols-outlined text-lg ${star <= reviewM.overallRating ? 'text-[#840f16]' : 'text-gray-300'}">star</span>
-                      </button>
-                    `).join('')}
-                  </div>
-                </div>
-
-                <div class="flex justify-between items-center text-xs">
-                  <span class="text-[#58413f]">${isMm ? 'အစားအစာ အရသာ (Food Quality)' : 'Food & Flavor'}</span>
-                  <div class="flex gap-1 text-[#840f16]">
-                    ${[1, 2, 3, 4, 5].map(star => `
-                      <button type="button" data-u09-star-food="${star}" class="cursor-pointer">
-                        <span class="material-symbols-outlined text-base ${star <= reviewM.foodRating ? 'text-[#840f16]' : 'text-gray-300'}">star</span>
-                      </button>
-                    `).join('')}
-                  </div>
-                </div>
-
-                <div class="flex justify-between items-center text-xs">
-                  <span class="text-[#58413f]">${isMm ? 'ဝန်ဆောင်မှု အဆင့်အတန်း (Service)' : 'Service Hospitality'}</span>
-                  <div class="flex gap-1 text-[#840f16]">
-                    ${[1, 2, 3, 4, 5].map(star => `
-                      <button type="button" data-u09-star-service="${star}" class="cursor-pointer">
-                        <span class="material-symbols-outlined text-base ${star <= reviewM.serviceRating ? 'text-[#840f16]' : 'text-gray-300'}">star</span>
-                      </button>
-                    `).join('')}
-                  </div>
-                </div>
-
-                <div class="flex justify-between items-center text-xs">
-                  <span class="text-[#58413f]">${isMm ? 'ဆိုင်တွင်း အပြင်အဆင် (Ambience)' : 'Atmosphere & Ambience'}</span>
-                  <div class="flex gap-1 text-[#840f16]">
-                    ${[1, 2, 3, 4, 5].map(star => `
-                      <button type="button" data-u09-star-ambience="${star}" class="cursor-pointer">
-                        <span class="material-symbols-outlined text-base ${star <= reviewM.ambienceRating ? 'text-[#840f16]' : 'text-gray-300'}">star</span>
-                      </button>
-                    `).join('')}
-                  </div>
-                </div>
-
-              </div>
-
-              <!-- Comment Textarea -->
-              <div class="space-y-1">
-                <label class="font-label text-xs font-bold text-[#58413f] uppercase tracking-wider">
-                  ${isMm ? 'သုံးသပ်ချက် ရေးသားပါ (Your Review)' : 'Detailed Feedback & Review'}
-                </label>
-                <textarea
-                  id="u09-review-comment"
-                  rows="3"
-                  required
-                  placeholder="${isMm ? 'အရသာ၊ ဝန်ဆောင်မှု၊ စားပွဲဝိုင်း သက်တောင့်သက်သာရှိမှု အတွေ့အကြုံများကို ဝေမျှပါ...' : 'Describe the flavours, ambience, hospitality, and standout dishes...'}"
-                  class="w-full bg-[#FFF8F6] border border-[#EADFD1] focus:border-[#840f16] rounded-2xl p-3 font-body text-xs sm:text-sm text-[#231916] focus:outline-none"
-                >${reviewM.comment || ''}</textarea>
-              </div>
-
-              <!-- Submit Review Button -->
-              <button
-                type="submit"
-                class="w-full btn-primary py-3.5 rounded-2xl font-label text-xs font-bold shadow-md cursor-pointer"
-              >
-                ${isMm ? 'သုံးသပ်ချက် ပေးပို့မည် (Submit Review & Earn +500 Pts)' : 'Submit Review (+500 Points)'}
-              </button>
-
-            </form>
-
-          </div>
-        </div>
-      `;
-    }
-
-    // 4. QR PASS ENLARGED INSPECTION MODAL
-    if (passM) {
-      modalsHtml += `
-        <div class="fixed inset-0 z-50 bg-black/75 backdrop-blur-md flex items-center justify-center p-4 animate-fadeIn">
-          <div class="bg-[#FFF7E8] w-full max-w-md rounded-3xl border border-[#EADFD1] shadow-2xl overflow-hidden p-6 text-center space-y-5 text-left">
-            
-            <div class="flex justify-between items-center border-b border-[#EADFD1] pb-3">
-              <div class="font-label text-xs font-bold text-[#840f16] uppercase tracking-wider flex items-center gap-1">
-                <span class="material-symbols-outlined text-sm">verified_user</span>
-                <span>Official Check-In Dining Pass</span>
-              </div>
-              <button id="u09-modal-close-btn" class="w-8 h-8 rounded-full bg-white flex items-center justify-center text-[#58413f] hover:text-[#840f16] cursor-pointer">
-                <span class="material-symbols-outlined text-base">close</span>
-              </button>
-            </div>
-
-            <div class="space-y-1 text-center">
-              <h3 class="font-headline text-xl font-bold text-[#231916]">
-                ${passM.restaurantName}
-              </h3>
-              <p class="font-body text-xs text-[#58413f]">
-                Pass #${passM.reservationNo}
-              </p>
-            </div>
-
-            <!-- QR Image Box -->
-            <div class="p-4 bg-[#231916] rounded-2xl inline-block shadow-lg qr-glow my-2 w-full text-center">
-              <img
-                src="${window.YoyakuPrototype ? window.YoyakuPrototype.createQrDataUri(`YOYAKU-${passM.reservationNo}`) : ''}"
-                alt="QR Pass"
-                class="w-44 h-44 object-contain mx-auto"
-              />
-              <div class="font-label text-[10px] text-[#e8c078] tracking-widest uppercase mt-2">
-                Scan upon arrival at reception
-              </div>
-            </div>
-
-            <div class="bg-[#FBF3E2] p-4 rounded-2xl border border-[#EADFD1] font-label text-xs space-y-1.5 text-left">
-              <div class="flex justify-between">
-                <span class="text-[#58413f]">Date & Time:</span>
-                <span class="font-bold text-[#231916]">${passM.date} at ${passM.time}</span>
-              </div>
-              <div class="flex justify-between">
-                <span class="text-[#58413f]">Party Size:</span>
-                <span class="font-bold text-[#231916]">${passM.guests} Guests</span>
-              </div>
-              <div class="flex justify-between">
-                <span class="text-[#58413f]">Primary Guest:</span>
-                <span class="font-bold text-[#231916]">${passM.guestName}</span>
-              </div>
-              <div class="flex justify-between">
-                <span class="text-[#58413f]">Table Preference:</span>
-                <span class="font-bold text-[#840f16]">${passM.seatingPreference || 'Standard Table'}</span>
-              </div>
-            </div>
-
-            <button
-              id="u09-modal-done-btn"
-              class="w-full btn-primary py-3 rounded-full font-label text-xs font-bold cursor-pointer"
-            >
-              Done
-            </button>
-
-          </div>
-        </div>
-      `;
-    }
-
-    return modalsHtml;
-  }
-
-  // =========================================================================
-  // EVENT ATTACHMENTS FOR U-09
-  // =========================================================================
-  function attachReservationsListViewEvents(containerElement = document) {
-    // 1. Back to List
-    const backBtn = containerElement.querySelector('#u09-back-to-list-btn');
+    // Back button
+    const backBtn = containerElement.querySelector('#u09-back-btn');
     if (backBtn) {
       backBtn.addEventListener('click', () => {
+        const isGuest = store.getState().isGuestReservationView;
         store.clearSelectedReservationDetail();
-      });
-    }
-
-    // 2. Book new table
-    const bookNewBtn = containerElement.querySelector('#resv-book-new-btn');
-    if (bookNewBtn) {
-      bookNewBtn.addEventListener('click', () => {
-        store.setActiveTab('discover');
-      });
-    }
-
-    const emptyDiscoverBtn = containerElement.querySelector('#resv-empty-discover-btn');
-    if (emptyDiscoverBtn) {
-      emptyDiscoverBtn.addEventListener('click', () => {
-        store.setActiveTab('discover');
-      });
-    }
-
-    // 3. Guest lookup button
-    const guestLookupBtn = containerElement.querySelector('#u09-guest-lookup-btn');
-    if (guestLookupBtn) {
-      guestLookupBtn.addEventListener('click', () => {
-        store.openInfoModal('check_guest_booking');
-      });
-    }
-
-    // 4. View Detail from card
-    containerElement.querySelectorAll('[data-u09-view-detail-id]').forEach(el => {
-      el.addEventListener('click', (e) => {
-        const resId = e.currentTarget.getAttribute('data-u09-view-detail-id');
-        store.selectReservationForDetail(resId, false);
-      });
-    });
-
-    // 5. QR Pass trigger
-    const qrPassBtn = containerElement.querySelector('#u09-view-qr-pass-btn');
-    if (qrPassBtn) {
-      qrPassBtn.addEventListener('click', () => {
-        const state = store.getState();
-        const currentRes = state.reservations.find(b => b.id === state.selectedReservationId);
-        if (currentRes) store.setInspectedPassBooking(currentRes);
-      });
-    }
-
-    const qrPassBtn2 = containerElement.querySelector('#u09-view-qr-pass-btn-2');
-    if (qrPassBtn2) {
-      qrPassBtn2.addEventListener('click', () => {
-        const state = store.getState();
-        const currentRes = state.reservations.find(b => b.id === state.selectedReservationId);
-        if (currentRes) store.setInspectedPassBooking(currentRes);
-      });
-    }
-
-    containerElement.querySelectorAll('[data-resv-view-pass-id]').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        const bId = e.currentTarget.getAttribute('data-resv-view-pass-id');
-        const booking = store.getState().reservations.find(b => b.id === bId);
-        if (booking) store.setInspectedPassBooking(booking);
-      });
-    });
-
-    // 6. Change Date/Time Modal Open ("日時を変更")
-    const changeBtn = containerElement.querySelector('#u09-change-datetime-btn');
-    if (changeBtn) {
-      changeBtn.addEventListener('click', () => {
-        const state = store.getState();
-        if (state.selectedReservationId) {
-          store.openU09ChangeModal(state.selectedReservationId);
+        if (isGuest) {
+          store.setActiveTab('login');
+        } else {
+          store.setActiveTab('reservations');
         }
       });
     }
 
-    // Date / Time selection inside Change Modal
-    containerElement.querySelectorAll('[data-u09-select-change-date]').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        const d = e.currentTarget.getAttribute('data-u09-select-change-date');
-        store.updateU09ChangeField('date', d);
-      });
-    });
-
-    containerElement.querySelectorAll('[data-u09-select-change-time]').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        const t = e.currentTarget.getAttribute('data-u09-select-change-time');
-        store.updateU09ChangeField('time', t);
-      });
-    });
-
-    const guestMinusBtn = containerElement.querySelector('#u09-change-guest-minus');
-    if (guestMinusBtn) {
-      guestMinusBtn.addEventListener('click', () => {
-        const current = store.getState().u09ChangeModal.guests || 2;
-        store.updateU09ChangeField('guests', current - 1);
+    // Guest login link
+    const guestLoginLink = containerElement.querySelector('#u09-guest-login-link');
+    if (guestLoginLink) {
+      guestLoginLink.addEventListener('click', () => {
+        store.clearSelectedReservationDetail();
+        store.setActiveTab('login');
       });
     }
 
-    const guestPlusBtn = containerElement.querySelector('#u09-change-guest-plus');
-    if (guestPlusBtn) {
-      guestPlusBtn.addEventListener('click', () => {
-        const current = store.getState().u09ChangeModal.guests || 2;
-        store.updateU09ChangeField('guests', current + 1);
+    // Copy ID button
+    const copyBtn = containerElement.querySelector('#u09-copy-id-btn');
+    if (copyBtn) {
+      copyBtn.addEventListener('click', () => {
+        const resNo = copyBtn.getAttribute('data-res-no') || 'EZ-2026-8894';
+        navigator.clipboard.writeText(resNo);
+        const btnText = containerElement.querySelector('#u09-copy-btn-text');
+        if (btnText) btnText.innerText = 'Copied!';
+        store.showToast('Reservation ID copied to clipboard!');
+        setTimeout(() => {
+          if (btnText) btnText.innerText = store.getState().currentLanguage === 'MM' ? 'ကူးယူရန်' : 'Copy ID';
+        }, 2000);
       });
     }
 
-    const changeForm = containerElement.querySelector('#u09-change-datetime-form');
-    if (changeForm) {
-      changeForm.addEventListener('submit', (e) => {
-        e.preventDefault();
-        const resId = store.getState().u09ChangeModal.reservationId;
-        store.confirmU09Change(resId);
+    // Call Shop Concierge button
+    const callBtn = containerElement.querySelector('#u09-call-shop-btn');
+    if (callBtn) {
+      callBtn.addEventListener('click', () => {
+        const phone = callBtn.getAttribute('data-phone') || '+95 1 541 997';
+        store.showToast(`Connecting to venue concierge: ${phone}`);
       });
     }
 
-    const cancelChangeBtn = containerElement.querySelector('#u09-cancel-change-modal-btn');
-    if (cancelChangeBtn) {
-      cancelChangeBtn.addEventListener('click', () => {
-        store.closeU09ChangeModal();
+    // Add to Calendar button
+    const calBtn = containerElement.querySelector('#u09-calendar-btn');
+    if (calBtn) {
+      calBtn.addEventListener('click', () => {
+        store.showToast('Reservation reminder saved to your calendar!');
       });
     }
 
-    // 7. Cancel Reservation Modal Open
-    const cancelBtn = containerElement.querySelector('#u09-cancel-booking-btn');
-    if (cancelBtn) {
-      cancelBtn.addEventListener('click', () => {
-        const state = store.getState();
-        if (state.selectedReservationId) {
-          store.openU09CancelModal(state.selectedReservationId);
-        }
+    // View Map button
+    const mapBtn = containerElement.querySelector('#u09-map-btn');
+    if (mapBtn) {
+      mapBtn.addEventListener('click', () => {
+        const address = mapBtn.getAttribute('data-address');
+        store.showToast(`Opening venue location: ${address}`);
       });
     }
 
-    const cancelForm = containerElement.querySelector('#u09-cancel-booking-form');
-    if (cancelForm) {
-      cancelForm.addEventListener('submit', (e) => {
-        e.preventDefault();
-        const reason = containerElement.querySelector('input[name="cancel_reason"]:checked')?.value || 'schedule_change';
-        store.setU09CancelReason(reason);
-        const resId = store.getState().u09CancelModal.reservationId;
-        store.confirmU09Cancellation(resId);
-      });
-    }
-
-    const cancelDismissBtn = containerElement.querySelector('#u09-cancel-modal-dismiss-btn');
-    if (cancelDismissBtn) {
-      cancelDismissBtn.addEventListener('click', () => {
-        store.closeU09CancelModal();
-      });
-    }
-
-    // 8. Write Review Modal
-    const writeReviewBtn = containerElement.querySelector('#u09-write-review-btn');
-    if (writeReviewBtn) {
-      writeReviewBtn.addEventListener('click', () => {
-        const state = store.getState();
-        if (state.selectedReservationId) {
-          store.openU09ReviewModal(state.selectedReservationId);
-        }
-      });
-    }
-
-    containerElement.querySelectorAll('[data-u09-open-review-id]').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        const resId = e.currentTarget.getAttribute('data-u09-open-review-id');
-        store.openU09ReviewModal(resId);
-      });
-    });
-
-    // Rating star clicks
-    ['overall', 'food', 'service', 'ambience'].forEach(category => {
-      containerElement.querySelectorAll(`[data-u09-star-${category}]`).forEach(starBtn => {
-        starBtn.addEventListener('click', (e) => {
-          const val = parseInt(e.currentTarget.getAttribute(`data-u09-star-${category}`), 10) || 5;
-          store.setU09ReviewField(`${category}Rating`, val);
-        });
-      });
-    });
-
-    const reviewForm = containerElement.querySelector('#u09-review-form');
-    if (reviewForm) {
-      reviewForm.addEventListener('submit', (e) => {
-        e.preventDefault();
-        const comment = containerElement.querySelector('#u09-review-comment')?.value || '';
-        store.setU09ReviewField('comment', comment);
-        const resId = store.getState().u09ReviewModal.reservationId;
-        store.submitU09Review(resId);
-      });
-    }
-
-    // 9. Re-booking Button (One-tap Re-booking)
+    // Rebook button
     const rebookBtn = containerElement.querySelector('#u09-rebook-btn');
     if (rebookBtn) {
       rebookBtn.addEventListener('click', () => {
-        const state = store.getState();
-        if (state.selectedReservationId) {
-          store.rebookReservation(state.selectedReservationId);
+        const restId = rebookBtn.getAttribute('data-rest-id') || '1';
+        const { RESTAURANTS_DATA } = window.YoyakuData || {};
+        const rest = (RESTAURANTS_DATA || []).find(r => r.id === restId) || (RESTAURANTS_DATA && RESTAURANTS_DATA[0]);
+        if (rest) {
+          store.clearSelectedReservationDetail();
+          store.openBookingModal(rest);
         }
       });
     }
 
-    containerElement.querySelectorAll('[data-u09-rebook-id]').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        const resId = e.currentTarget.getAttribute('data-u09-rebook-id');
-        store.rebookReservation(resId);
-      });
-    });
+    // QR Pass Modal handlers
+    const viewPassBtn = containerElement.querySelector('#u09-view-pass-btn');
+    const qrModal = containerElement.querySelector('#u09-qr-modal');
+    const closeQrBtn = containerElement.querySelector('#u09-close-qr-modal-btn');
+    const dismissQrBtn = containerElement.querySelector('#u09-dismiss-qr-modal-btn');
 
-    // 10. View Venue Page
-    const venuePageBtn = containerElement.querySelector('#u09-view-restaurant-page-btn');
-    if (venuePageBtn) {
-      venuePageBtn.addEventListener('click', () => {
-        const state = store.getState();
-        const res = state.reservations.find(b => b.id === state.selectedReservationId);
-        if (res) {
-          const { RESTAURANTS_DATA } = window.YoyakuData || {};
-          const target = RESTAURANTS_DATA && RESTAURANTS_DATA.find(r => r.id === res.restaurantId);
-          if (target) {
-            store.setSelectedRestaurant(target);
-          }
+    if (viewPassBtn && qrModal) {
+      viewPassBtn.addEventListener('click', () => {
+        qrModal.classList.remove('hidden');
+      });
+    }
+    if (closeQrBtn && qrModal) {
+      closeQrBtn.addEventListener('click', () => {
+        qrModal.classList.add('hidden');
+      });
+    }
+    if (dismissQrBtn && qrModal) {
+      dismissQrBtn.addEventListener('click', () => {
+        qrModal.classList.add('hidden');
+      });
+    }
+
+    // Change Modal handlers
+    const changeBtn = containerElement.querySelector('#u09-change-btn');
+    const changeModal = containerElement.querySelector('#u09-change-modal');
+    const closeChangeBtn = containerElement.querySelector('#u09-close-change-modal-btn');
+    const cancelChangeBtn = containerElement.querySelector('#u09-cancel-change-modal-btn');
+    const changeForm = containerElement.querySelector('#u09-change-form');
+    const guestInput = containerElement.querySelector('#u09-change-guests-input');
+    const guestMinusBtn = containerElement.querySelector('#u09-guest-minus-btn');
+    const guestPlusBtn = containerElement.querySelector('#u09-guest-plus-btn');
+    const totalPreview = containerElement.querySelector('#u09-change-total-preview');
+
+    function updateEstimatedTotal() {
+      if (!guestInput || !totalPreview) return;
+      const count = parseInt(guestInput.value, 10) || 1;
+      const perGuest = 87500;
+      const total = count * perGuest;
+      totalPreview.innerText = formatMMK(total);
+    }
+
+    if (guestMinusBtn && guestInput) {
+      guestMinusBtn.addEventListener('click', () => {
+        let val = parseInt(guestInput.value, 10) || 1;
+        if (val > 1) {
+          guestInput.value = val - 1;
+          updateEstimatedTotal();
         }
       });
     }
 
-    // Modal Close
-    containerElement.querySelectorAll('#u09-modal-close-btn, #u09-modal-done-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        store.closeU09ChangeModal();
-        store.closeU09CancelModal();
-        store.closeU09ReviewModal();
-        store.setInspectedPassBooking(null);
+    if (guestPlusBtn && guestInput) {
+      guestPlusBtn.addEventListener('click', () => {
+        let val = parseInt(guestInput.value, 10) || 1;
+        if (val < 20) {
+          guestInput.value = val + 1;
+          updateEstimatedTotal();
+        }
       });
-    });
+    }
+
+    if (guestInput) {
+      guestInput.addEventListener('input', updateEstimatedTotal);
+    }
+
+    if (changeBtn && changeModal) {
+      changeBtn.addEventListener('click', () => {
+        changeModal.classList.remove('hidden');
+      });
+    }
+    if (closeChangeBtn && changeModal) {
+      closeChangeBtn.addEventListener('click', () => {
+        changeModal.classList.add('hidden');
+      });
+    }
+    if (cancelChangeBtn && changeModal) {
+      cancelChangeBtn.addEventListener('click', () => {
+        changeModal.classList.add('hidden');
+      });
+    }
+
+    if (changeForm && changeModal) {
+      changeForm.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const dateVal = containerElement.querySelector('#u09-change-date-input')?.value || '2026-08-26';
+        const timeVal = containerElement.querySelector('#u09-change-time-select')?.value || '19:30';
+        const guestsVal = parseInt(guestInput?.value || '4', 10);
+
+        const st = store.getState();
+        const resId = st.selectedReservationId;
+        const resv = (st.reservations || []).find(r => r.id === resId);
+        if (resv) {
+          resv.date = dateVal;
+          resv.time = timeVal;
+          resv.guests = guestsVal;
+          resv.totalAmountMMK = guestsVal * 87500;
+        }
+
+        changeModal.classList.add('hidden');
+        store.showToast('Reservation date, time & guests successfully updated!');
+        store.notify();
+      });
+    }
+
+    // Cancel Modal handlers
+    const cancelBtn = containerElement.querySelector('#u09-cancel-btn');
+    const cancelModal = containerElement.querySelector('#u09-cancel-modal');
+    const closeCancelBtn = containerElement.querySelector('#u09-close-cancel-modal-btn');
+    const abortCancelBtn = containerElement.querySelector('#u09-abort-cancel-modal-btn');
+    const confirmCancelFinalBtn = containerElement.querySelector('#u09-confirm-cancel-final-btn');
+
+    if (cancelBtn && cancelModal) {
+      cancelBtn.addEventListener('click', () => {
+        cancelModal.classList.remove('hidden');
+      });
+    }
+    if (closeCancelBtn && cancelModal) {
+      closeCancelBtn.addEventListener('click', () => {
+        cancelModal.classList.add('hidden');
+      });
+    }
+    if (abortCancelBtn && cancelModal) {
+      abortCancelBtn.addEventListener('click', () => {
+        cancelModal.classList.add('hidden');
+      });
+    }
+
+    if (confirmCancelFinalBtn && cancelModal) {
+      confirmCancelFinalBtn.addEventListener('click', () => {
+        const st = store.getState();
+        const resId = st.selectedReservationId;
+        const resv = (st.reservations || []).find(r => r.id === resId);
+        if (resv) {
+          resv.status = 'Cancelled';
+          resv.cancelledAt = new Date().toISOString();
+        }
+        cancelModal.classList.add('hidden');
+        store.showToast('Reservation has been cancelled.');
+        store.notify();
+      });
+    }
   }
 
-  window.YoyakuComponents.renderReservationsListView = renderReservationsListView;
-  window.YoyakuComponents.renderReservationDetailView = renderReservationDetailView;
-  window.YoyakuComponents.attachReservationsListViewEvents = attachReservationsListViewEvents;
+  window.YoyakuComponents.renderBookingDetailView = renderBookingDetailView;
+  window.YoyakuComponents.attachBookingDetailViewEvents = attachBookingDetailViewEvents;
 })();
